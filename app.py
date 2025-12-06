@@ -1,5 +1,5 @@
 """
-🚖 بوت النقل الذكي - نسخة بأزرار تعمل 100%
+🚖 بوت النقل الذكي - نسخة معدلة بدون before_first_request
 """
 
 import os
@@ -7,6 +7,8 @@ import logging
 from flask import Flask, request, jsonify
 import telebot
 from telebot import types
+import threading
+import time
 
 # ============================================================================
 # إعدادات أساسية
@@ -33,26 +35,50 @@ users = {}
 active_drivers = {}
 ride_requests = []
 
+# متغير لتتبع حالة الويب هوك
+webhook_set = False
+
 # ============================================================================
-# دوال لإنشاء الأزرار (مبسطة لضمان العمل)
+# دالة لإعداد الويب هوك بعد بدء التطبيق
+# ============================================================================
+
+def setup_webhook_after_start():
+    """إعداد الويب هوك بعد بدء التطبيق بفترة قصيرة"""
+    time.sleep(2)  # انتظار 2 ثانية لبدء التطبيق
+    
+    try:
+        # الحصول على اسم المضيف من متغيرات البيئة أو استخدام افتراضي
+        host = os.environ.get('RENDER_EXTERNAL_HOSTNAME', '')
+        
+        if host:
+            webhook_url = f"https://{host}/webhook"
+        else:
+            # إذا لم يكن هناك مضيف خارجي، قد نكون في التطوير المحلي
+            webhook_url = None
+            logger.warning("⚠️ لم يتم العثور على مضيف خارجي، لن يتم تعيين ويب هوك تلقائياً")
+            return
+        
+        # إزالة أي ويب هوك سابق وتعيين الجديد
+        bot.remove_webhook()
+        time.sleep(1)
+        bot.set_webhook(url=webhook_url)
+        
+        global webhook_set
+        webhook_set = True
+        
+        logger.info(f"✅ تم تعيين ويب هوك على: {webhook_url}")
+        
+    except Exception as e:
+        logger.error(f"❌ فشل تعيين ويب هوك: {e}")
+
+# ============================================================================
+# دوال لإنشاء الأزرار
 # ============================================================================
 
 def create_main_keyboard():
-    """لوحة مفاتيح رئيسية - Reply Keyboard"""
+    """لوحة مفاتيح رئيسية"""
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     
-    buttons = [
-        '🚖 طلب رحلة',
-        '📍 إرسال موقعي',
-        '💰 رصيدي',
-        '📋 رحلاتي',
-        '⚙️ الإعدادات',
-        '📞 الدعم',
-        '👤 حسابي',
-        '🎫 العروض'
-    ]
-    
-    # إضافة الأزرار بطرق مختلفة لضمان الظهور
     markup.row('🚖 طلب رحلة', '📍 إرسال موقعي')
     markup.row('💰 رصيدي', '📋 رحلاتي')
     markup.row('⚙️ الإعدادات', '📞 الدعم')
@@ -60,40 +86,25 @@ def create_main_keyboard():
     
     return markup
 
-def create_driver_keyboard():
-    """لوحة مفاتيح للسائقين"""
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    
-    markup.row('🟢 بدء العمل', '🔴 إيقاف')
-    markup.row('📍 تحديث موقعي', '📊 الطلبات')
-    markup.row('💰 أرباحي', '📈 إحصائيات')
-    markup.row('🏠 القائمة الرئيسية')
-    
-    return markup
-
 def create_inline_main_menu():
-    """قائمة داخلية - Inline Keyboard"""
+    """قائمة داخلية رئيسية"""
     markup = types.InlineKeyboardMarkup(row_width=2)
     
-    # الصف الأول
     markup.add(
         types.InlineKeyboardButton("🚖 طلب رحلة", callback_data="req_ride"),
         types.InlineKeyboardButton("💰 رصيدي", callback_data="my_balance")
     )
     
-    # الصف الثاني
     markup.add(
         types.InlineKeyboardButton("📋 رحلاتي", callback_data="my_rides"),
         types.InlineKeyboardButton("⭐ تقييماتي", callback_data="my_ratings")
     )
     
-    # الصف الثالث
     markup.add(
         types.InlineKeyboardButton("🎫 العروض", callback_data="offers"),
         types.InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")
     )
     
-    # الصف الرابع
     markup.add(
         types.InlineKeyboardButton("📞 الدعم", callback_data="support"),
         types.InlineKeyboardButton("ℹ️ عن البوت", callback_data="about")
@@ -121,37 +132,8 @@ def create_ride_types_menu():
     
     return markup
 
-def create_quick_actions():
-    """أزرار سريعة"""
-    markup = types.InlineKeyboardMarkup(row_width=3)
-    
-    markup.row(
-        types.InlineKeyboardButton("🚖", callback_data="quick_ride"),
-        types.InlineKeyboardButton("📍", callback_data="quick_location"),
-        types.InlineKeyboardButton("💰", callback_data="quick_balance")
-    )
-    
-    markup.row(
-        types.InlineKeyboardButton("📞", callback_data="quick_support"),
-        types.InlineKeyboardButton("⭐", callback_data="quick_rate"),
-        types.InlineKeyboardButton("⚙️", callback_data="quick_settings")
-    )
-    
-    return markup
-
-def create_confirmation_buttons():
-    """أزرار تأكيد"""
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    
-    markup.add(
-        types.InlineKeyboardButton("✅ نعم", callback_data="confirm_yes"),
-        types.InlineKeyboardButton("❌ لا", callback_data="confirm_no")
-    )
-    
-    return markup
-
 # ============================================================================
-# معالجات الرسائل الأساسية (مع أزرار Reply Keyboard)
+# معالجات الرسائل
 # ============================================================================
 
 @bot.message_handler(commands=['start', 'menu'])
@@ -178,14 +160,13 @@ def handle_start(message):
         f"✨ <b>اختر الخدمة المطلوبة من الأزرار أدناه:</b>"
     )
     
-    # إرسال مع Reply Keyboard (تظهر أسفل الشاشة)
     bot.send_message(
         message.chat.id,
         welcome_msg,
         reply_markup=create_main_keyboard()
     )
     
-    # بعد 1 ثانية، إرسال القائمة التفاعلية
+    # إرسال القائمة التفاعلية
     bot.send_message(
         message.chat.id,
         "📱 <b>القائمة التفاعلية السريعة:</b>\n(اضغط على الأزرار داخل الرسالة)",
@@ -197,7 +178,6 @@ def handle_ride_request(message):
     """طلب رحلة جديدة"""
     logger.info(f"🚖 طلب رحلة من: {message.from_user.id}")
     
-    # إرسال رسالة مع أزرار Inline
     bot.send_message(
         message.chat.id,
         "🚗 <b>اختر نوع الرحلة:</b>\n\n"
@@ -213,7 +193,6 @@ def handle_balance(message):
     """عرض الرصيد"""
     user_id = str(message.from_user.id)
     
-    # إنشاء أزرار Inline للرصيد
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("💳 شحن", callback_data="charge_balance"),
@@ -256,128 +235,24 @@ def handle_support(message):
         reply_markup=markup
     )
 
-@bot.message_handler(func=lambda message: message.text == '⚙️ الإعدادات')
-def handle_settings(message):
-    """عرض الإعدادات"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("👤 الملف الشخصي", callback_data="edit_profile"),
-        types.InlineKeyboardButton("🔔 الإشعارات", callback_data="notifications"),
-        types.InlineKeyboardButton("🌍 اللغة", callback_data="language"),
-        types.InlineKeyboardButton("🔒 الخصوصية", callback_data="privacy"),
-        types.InlineKeyboardButton("🎨 المظهر", callback_data="theme")
-    )
-    
-    bot.send_message(
-        message.chat.id,
-        "⚙️ <b>الإعدادات</b>\n\n"
-        "يمكنك تخصيص إعدادات حسابك:",
-        reply_markup=markup
-    )
-
-@bot.message_handler(func=lambda message: message.text == '👤 حسابي')
-def handle_profile(message):
-    """عرض الملف الشخصي"""
-    user_id = str(message.from_user.id)
-    user_data = users.get(user_id, {})
-    
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("✏️ تعديل الاسم", callback_data="edit_name"),
-        types.InlineKeyboardButton("📱 رقم الجوال", callback_data="edit_phone")
-    )
-    markup.add(
-        types.InlineKeyboardButton("📧 البريد", callback_data="edit_email"),
-        types.InlineKeyboardButton("🔐 كلمة المرور", callback_data="change_password")
-    )
-    
-    bot.send_message(
-        message.chat.id,
-        f"👤 <b>الملف الشخصي</b>\n\n"
-        f"• <b>الاسم:</b> {user_data.get('name', 'غير محدد')}\n"
-        f"• <b>رقم العضوية:</b> #{user_id[-6:]}\n"
-        f"• <b>تاريخ التسجيل:</b> اليوم\n"
-        f"• <b>عدد الرحلات:</b> 0\n"
-        f"• <b>التقييم:</b> ⭐⭐⭐⭐⭐\n\n"
-        f"اختر ما تريد تعديله:",
-        reply_markup=markup
-    )
-
-@bot.message_handler(func=lambda message: message.text == '🎫 العروض')
-def handle_offers(message):
-    """عرض العروض"""
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("🎁 أول رحلة مجاناً", callback_data="offer_first"),
-        types.InlineKeyboardButton("👥 دعوة أصدقاء", callback_data="invite_friends"),
-        types.InlineKeyboardButton("📱 حمّل التطبيق", callback_data="download_app"),
-        types.InlineKeyboardButton("🎯 عرض العودة", callback_data="comeback_offer"),
-        types.InlineKeyboardButton("📊 جميع العروض", callback_data="all_offers")
-    )
-    
-    bot.send_message(
-        message.chat.id,
-        "🎫 <b>العروض والترقيات</b>\n\n"
-        "🔥 <b>عروض حصرية لك!</b>\n\n"
-        "1. 🎁 <b>الرحلة الأولى مجاناً</b>\n"
-        "   - لحد 50 ريال\n"
-        "   - صالح لـ 7 أيام\n\n"
-        "2. 👥 <b>دعوة أصدقاء</b>\n"
-        "   - احصل على 50 ريال\n"
-        "   - لكل صديق\n\n"
-        "اختر العرض:",
-        reply_markup=markup
-    )
-
-@bot.message_handler(func=lambda message: message.text == '🏠 القائمة الرئيسية')
-def handle_main_menu(message):
-    """العودة للقائمة الرئيسية"""
-    handle_start(message)
-
-# ============================================================================
-# معالجة الأزرار التفاعلية (Inline Keyboard)
-# ============================================================================
-
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback_query(call):
-    """معالجة جميع ضغطات الأزرار التفاعلية"""
-    user_id = str(call.from_user.id)
+    """معالجة ضغطات الأزرار"""
     chat_id = call.message.chat.id
     
-    logger.info(f"🔘 ضغط زر: {call.data} من {user_id}")
-    
-    # إجابة سريعة عن الضغط
     bot.answer_callback_query(call.id, text="جاري المعالجة...")
     
-    # معالجة حسب نوع الزر
     if call.data == "req_ride":
-        # طلب رحلة
         bot.send_message(
             chat_id,
             "🚖 <b>طلب رحلة جديدة</b>\n\n"
-            "الرجاء إرسال موقعك أو استخدام الزر أدناه:",
+            "الرجاء إرسال موقعك:",
             reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True).add(
                 types.KeyboardButton("📍 إرسال موقعي", request_location=True)
             )
         )
     
-    elif call.data == "my_balance":
-        # عرض الرصيد
-        markup = types.InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            types.InlineKeyboardButton("💳 شحن الآن", callback_data="charge_now"),
-            types.InlineKeyboardButton("📤 سحب", callback_data="withdraw_now")
-        )
-        
-        bot.send_message(
-            chat_id,
-            "💰 <b>رصيدك الحالي: 0.00 ر.س</b>\n\n"
-            "اختر الإجراء:",
-            reply_markup=markup
-        )
-    
     elif call.data.startswith("ride_"):
-        # اختيار نوع الرحلة
         ride_type = call.data.replace("ride_", "")
         types_map = {
             "normal": "عادية",
@@ -388,7 +263,6 @@ def handle_callback_query(call):
         
         ride_name = types_map.get(ride_type, "عادية")
         
-        # طلب الموقع بعد اختيار نوع الرحلة
         bot.send_message(
             chat_id,
             f"✅ <b>تم اختيار رحلة {ride_name}</b>\n\n"
@@ -399,72 +273,19 @@ def handle_callback_query(call):
         )
     
     elif call.data == "back_main":
-        # العودة للقائمة الرئيسية
         bot.send_message(
             chat_id,
             "🏠 <b>القائمة الرئيسية</b>",
             reply_markup=create_main_keyboard()
         )
         
-        # إرسال القائمة التفاعلية أيضاً
         bot.send_message(
             chat_id,
             "📱 <b>القائمة التفاعلية:</b>",
             reply_markup=create_inline_main_menu()
         )
     
-    elif call.data == "support":
-        # الدعم
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        markup.add(
-            types.InlineKeyboardButton("💬 محادثة نصية", callback_data="start_chat"),
-            types.InlineKeyboardButton("📞 اتصال", url="tel:+966500000000"),
-            types.InlineKeyboardButton("↩️ رجوع", callback_data="back_main")
-        )
-        
-        bot.send_message(
-            chat_id,
-            "📞 <b>مركز الدعم</b>\n\n"
-            "كيف يمكننا مساعدتك؟",
-            reply_markup=markup
-        )
-    
-    elif call.data == "settings":
-        # الإعدادات
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        markup.add(
-            types.InlineKeyboardButton("👤 الملف الشخصي", callback_data="edit_profile"),
-            types.InlineKeyboardButton("🔔 الإشعارات", callback_data="notify_settings"),
-            types.InlineKeyboardButton("🌍 اللغة: العربية", callback_data="change_lang"),
-            types.InlineKeyboardButton("↩️ رجوع", callback_data="back_main")
-        )
-        
-        bot.send_message(
-            chat_id,
-            "⚙️ <b>الإعدادات</b>\n\n"
-            "اختر الإعداد الذي تريد تعديله:",
-            reply_markup=markup
-        )
-    
-    elif call.data == "confirm_yes":
-        # تأكيد نعم
-        bot.send_message(chat_id, "✅ <b>تم التأكيد بنجاح!</b>")
-    
-    elif call.data == "confirm_no":
-        # تأكيد لا
-        bot.send_message(chat_id, "❌ <b>تم الإلغاء</b>")
-    
-    elif call.data == "quick_ride":
-        # طلب سريع
-        bot.send_message(
-            chat_id,
-            "🚖 <b>طلب سريع</b>\n\n"
-            "جاري البحث عن أقرب سائق...",
-            reply_markup=create_confirmation_buttons()
-        )
-    
     else:
-        # لأي زر آخر
         bot.send_message(
             chat_id,
             f"🔘 <b>تم الضغط على: {call.data}</b>\n\n"
@@ -472,18 +293,11 @@ def handle_callback_query(call):
             reply_markup=create_inline_main_menu()
         )
 
-# ============================================================================
-# معالجة أنواع أخرى من الرسائل
-# ============================================================================
-
 @bot.message_handler(content_types=['location'])
 def handle_location(message):
-    """معالجة الموقع المرسل"""
+    """معالجة الموقع"""
     location = message.location
     
-    logger.info(f"📍 موقع من: {message.from_user.id}")
-    
-    # عرض أزرار بعد استلام الموقع
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("✅ تأكيد", callback_data="confirm_location"),
@@ -504,32 +318,13 @@ def handle_location(message):
         reply_markup=markup
     )
 
-@bot.message_handler(func=lambda message: message.text == '📍 إرسال موقعي')
-def handle_send_location_button(message):
-    """زر إرسال الموقع"""
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(
-        types.KeyboardButton("📍 إرسال موقعي الحالي", request_location=True)
-    )
-    markup.add(types.KeyboardButton("🏠 القائمة الرئيسية"))
-    
-    bot.send_message(
-        message.chat.id,
-        "📍 <b>إرسال الموقع</b>\n\n"
-        "اضغط على الزر أدناه لمشاركة موقعك الحالي:",
-        reply_markup=markup
-    )
-
 @bot.message_handler(func=lambda message: True)
 def handle_all_messages(message):
     """معالجة جميع الرسائل الأخرى"""
-    logger.info(f"📩 رسالة: {message.text} من {message.from_user.id}")
-    
-    # إذا كانت رسالة غير معروفة، نعرض القائمة
     if message.text not in [
         '🚖 طلب رحلة', '📍 إرسال موقعي', '💰 رصيدي',
         '📋 رحلاتي', '⚙️ الإعدادات', '📞 الدعم',
-        '👤 حسابي', '🎫 العروض', '🏠 القائمة الرئيسية'
+        '👤 حسابي', '🎫 العروض'
     ]:
         bot.send_message(
             message.chat.id,
@@ -539,7 +334,7 @@ def handle_all_messages(message):
         )
 
 # ============================================================================
-# صفحات الويب (مبسطة)
+# صفحات الويب
 # ============================================================================
 
 @app.route('/')
@@ -577,24 +372,37 @@ def home():
                 text-decoration: none;
                 border-radius: 5px;
             }}
+            .status {{
+                padding: 10px;
+                background: #f0f0f0;
+                border-radius: 5px;
+                margin: 20px 0;
+            }}
         </style>
     </head>
     <body>
         <div class="container">
             <h1>🚖 بوت النقل الذكي</h1>
-            <p>البوت يعمل بنجاح!</p>
-            <p>🤖 <strong>البوت:</strong> {bot_status}</p>
-            <p>👥 <strong>المستخدمين:</strong> {len(users)}</p>
+            <p>الإصدار المعدل - بدون before_first_request</p>
             
-            <div style="margin: 30px 0;">
-                <h3>🔘 أنواع الأزرار في البوت:</h3>
-                <p>1. Reply Keyboard (أسفل الشاشة)</p>
-                <p>2. Inline Keyboard (داخل الرسالة)</p>
+            <div class="status">
+                <p>🤖 <strong>البوت:</strong> {bot_status}</p>
+                <p>👥 <strong>المستخدمين:</strong> {len(users)}</p>
+                <p>🌐 <strong>الويب هوك:</strong> {'✅ مفعل' if webhook_set else '❌ غير مفعل'}</p>
             </div>
             
             <div>
                 <a href="/set_webhook" class="btn">⚙️ تعيين ويب هوك</a>
                 <a href="https://t.me/Dhdhdyduudbot" target="_blank" class="btn">💬 فتح البوت</a>
+                <a href="/test" class="btn">🧪 اختبار</a>
+            </div>
+            
+            <div style="margin-top: 30px;">
+                <h3>🔘 مميزات البوت:</h3>
+                <p>• أزرار تفاعلية داخل الرسائل</p>
+                <p>• تحديد الموقع تلقائياً</p>
+                <p>• طلب رحلة بنقرة واحدة</p>
+                <p>• دعم فني مباشر</p>
             </div>
         </div>
     </body>
@@ -603,56 +411,126 @@ def home():
 
 @app.route('/set_webhook')
 def set_webhook():
-    """تعيين ويب هوك"""
+    """تعيين ويب هوك يدوياً"""
     try:
-        webhook_url = f"https://{request.host}/webhook"
+        # الحصول على عنوان التطبيق
+        host = request.host
+        webhook_url = f"https://{host}/webhook"
+        
+        # إزالة أي ويب هوك سابق
         bot.remove_webhook()
+        
+        # تعيين ويب هوك جديد
         bot.set_webhook(url=webhook_url)
         
-        return '''
+        global webhook_set
+        webhook_set = True
+        
+        logger.info(f"✅ تم تعيين ويب هوك على: {webhook_url}")
+        
+        return f'''
         <!DOCTYPE html>
         <html dir="rtl">
         <head><meta charset="UTF-8"></head>
         <body style="padding: 50px; text-align: center;">
-            <h2>✅ تم تعيين الويب هوك بنجاح!</h2>
-            <p>يمكنك الآن استخدام البوت مع الأزرار التفاعلية</p>
-            <a href="/">العودة</a>
+            <h2 style="color: green;">✅ تم تعيين الويب هوك بنجاح!</h2>
+            <p><strong>الرابط:</strong> {webhook_url}</p>
+            <p><strong>الحالة:</strong> البوت جاهز لاستقبال الرسائل</p>
+            <div style="margin-top: 30px;">
+                <a href="https://t.me/Dhdhdyduudbot" target="_blank" 
+                   style="padding: 10px 20px; background: #0088cc; color: white; text-decoration: none; border-radius: 5px;">
+                    💬 افتح البوت الآن
+                </a>
+            </div>
+            <div style="margin-top: 20px;">
+                <a href="/">العودة للصفحة الرئيسية</a>
+            </div>
         </body>
         </html>
         '''
+        
     except Exception as e:
-        return f'<h2>❌ خطأ: {str(e)}</h2>'
+        logger.error(f"❌ خطأ في تعيين الويب هوك: {e}")
+        return f'''
+        <div style="padding: 50px; text-align: center;">
+            <h2 style="color: red;">❌ خطأ في تعيين الويب هوك</h2>
+            <p>{str(e)}</p>
+            <a href="/">العودة</a>
+        </div>
+        ''', 500
+
+@app.route('/test')
+def test_page():
+    """صفحة اختبار"""
+    return '''
+    <!DOCTYPE html>
+    <html dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <title>🧪 اختبار البوت</title>
+        <style>
+            body { padding: 30px; font-family: Arial; text-align: center; }
+        </style>
+    </head>
+    <body>
+        <h1>🧪 اختبار البوت</h1>
+        
+        <div style="background: #f0f0f0; padding: 20px; border-radius: 10px; margin: 20px auto; max-width: 500px;">
+            <h3>📱 خطوات الاختبار:</h3>
+            <ol style="text-align: right;">
+                <li>افتح تطبيق Telegram</li>
+                <li>ابحث عن: <strong>@Dhdhdyduudbot</strong></li>
+                <li>أرسل: <code>/start</code></li>
+                <li>اضغط على أي زر في القائمة</li>
+                <li>جرب الأزرار التفاعلية داخل الرسائل</li>
+            </ol>
+        </div>
+        
+        <div style="margin-top: 30px;">
+            <a href="https://t.me/Dhdhdyduudbot" target="_blank" 
+               style="padding: 15px 30px; background: #0088cc; color: white; text-decoration: none; border-radius: 8px; font-size: 1.2em;">
+                🚀 افتح البوت الآن
+            </a>
+        </div>
+        
+        <div style="margin-top: 30px;">
+            <a href="/">العودة للصفحة الرئيسية</a>
+        </div>
+    </body>
+    </html>
+    '''
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """نقطة استقبال تحديثات Telegram"""
     if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return 'OK'
-    return 'Bad Request'
+        try:
+            json_string = request.get_data().decode('utf-8')
+            update = telebot.types.Update.de_json(json_string)
+            bot.process_new_updates([update])
+            return 'OK'
+        except Exception as e:
+            logger.error(f"❌ خطأ في ويب هوك: {e}")
+            return 'Error', 500
+    return 'Bad Request', 400
 
 # ============================================================================
-# تشغيل التطبيق
+# بدء التطبيق
 # ============================================================================
 
 if __name__ == '__main__':
+    # التشغيل المحلي
     port = int(os.environ.get('PORT', 10000))
     logger.info(f"🚀 بدء التشغيل على منفذ {port}")
     
-    # إزالة أي ويب هوك سابق وتعيين جديد
-    bot.remove_webhook()
+    # بدء خيط لإعداد الويب هوك
+    webhook_thread = threading.Thread(target=setup_webhook_after_start)
+    webhook_thread.daemon = True
+    webhook_thread.start()
     
-    # تشغيل التطبيق
     app.run(host='0.0.0.0', port=port, debug=False)
 else:
-    # على Render، نعيين ويب هوك تلقائياً
-    @app.before_first_request
-    def setup_webhook():
-        webhook_url = f"https://{app.config.get('SERVER_NAME', '')}/webhook"
-        if not webhook_url.startswith('https://'):
-            webhook_url = f"https://{webhook_url}"
-        bot.remove_webhook()
-        bot.set_webhook(url=webhook_url)
-        logger.info(f"✅ تم تعيين ويب هوك على: {webhook_url}")
+    # على Render، نبدأ خيط لإعداد الويب هوك بعد بدء التطبيق
+    webhook_thread = threading.Thread(target=setup_webhook_after_start)
+    webhook_thread.daemon = True
+    webhook_thread.start()
