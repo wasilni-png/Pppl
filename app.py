@@ -1,5 +1,5 @@
 """
-🚖 بوت النقل الذكي - نسخة مضمونة العمل
+🚖 بوت النقل الذكي - نسخة مع واجهة تفاعلية محسنة
 """
 
 import os
@@ -19,39 +19,682 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# الحصول على التوكن من Environment Variables
+# الحصول على التوكن
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-
 if not BOT_TOKEN:
-    logger.error("❌ BOT_TOKEN غير معين في Environment Variables!")
-    # استخدم هذا التوكن للاختبار فقط (استبدله بتوكنك الفعلي)
-    BOT_TOKEN = "8314762629:AAFewIWyTZmANrnkaSyUZHUiDU0NmioJayo"
-    logger.info(f"✅ استخدام التوكن: {BOT_TOKEN[:10]}...")
+    BOT_TOKEN = "8425005126:8314762629:AAFewIWyTZmANrnkaSyUZHUiDU0NmioJayo"
 
 # تهيئة التطبيق والبوت
 app = Flask(__name__)
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
 
-# محاولة تهيئة البوت
-try:
-    bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
-    
-    # اختبار البوت
-    bot_info = bot.get_me()
-    logger.info(f"✅ تم تهيئة البوت: @{bot_info.username}")
-    
-except Exception as e:
-    logger.error(f"❌ فشل تهيئة البوت: {e}")
-    # إذا فشل التوكن، حاول بآخر
-    BOT_TOKEN = "8425005126:AAH9I7qu0gjKEpKX52rFWHsuCn9Bw5jaNr0"
-    bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
-    logger.info(f"✅ استخدام التوكن البديل: {BOT_TOKEN[:10]}...")
-
-# تخزين بسيط في الذاكرة
+# تخزين
 users = {}
 active_drivers = {}
+ride_requests = []
 
 # ============================================================================
-# صفحات الويب
+# دوال مساعدة للواجهة التفاعلية
+# ============================================================================
+
+def create_main_menu():
+    """إنشاء القائمة الرئيسية مع الأزرار الداخلية"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    buttons = [
+        types.InlineKeyboardButton("🚖 طلب رحلة", callback_data="request_ride"),
+        types.InlineKeyboardButton("📋 رحلاتي", callback_data="my_rides"),
+        types.InlineKeyboardButton("💰 رصيدي", callback_data="my_balance"),
+        types.InlineKeyboardButton("⭐ التقييمات", callback_data="ratings"),
+        types.InlineKeyboardButton("🎫 العروض", callback_data="offers"),
+        types.InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings"),
+        types.InlineKeyboardButton("📞 الدعم", callback_data="support"),
+        types.InlineKeyboardButton("ℹ️ عن البوت", callback_data="about")
+    ]
+    
+    # ترتيب الأزرار في صفوف
+    for i in range(0, len(buttons), 2):
+        if i+1 < len(buttons):
+            markup.add(buttons[i], buttons[i+1])
+        else:
+            markup.add(buttons[i])
+    
+    return markup
+
+def create_driver_menu():
+    """إنشاء قائمة السائق مع الأزرار الداخلية"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    buttons = [
+        types.InlineKeyboardButton("🟢 بدء العمل", callback_data="driver_start"),
+        types.InlineKeyboardButton("🔴 إيقاف", callback_data="driver_stop"),
+        types.InlineKeyboardButton("📍 تحديث الموقع", callback_data="update_location"),
+        types.InlineKeyboardButton("📊 الطلبات", callback_data="view_requests"),
+        types.InlineKeyboardButton("💰 الأرباح", callback_data="driver_earnings"),
+        types.InlineKeyboardButton("📈 الإحصائيات", callback_data="driver_stats"),
+        types.InlineKeyboardButton("👤 الملف", callback_data="driver_profile"),
+        types.InlineKeyboardButton("⚙️ الإعدادات", callback_data="driver_settings")
+    ]
+    
+    for i in range(0, len(buttons), 2):
+        if i+1 < len(buttons):
+            markup.add(buttons[i], buttons[i+1])
+        else:
+            markup.add(buttons[i])
+    
+    return markup
+
+def create_ride_types_menu():
+    """قائمة أنواع الرحلات"""
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    
+    markup.add(
+        types.InlineKeyboardButton("🚗 سيارة عادية", callback_data="ride_normal"),
+        types.InlineKeyboardButton("🚙 سيارة فاخرة", callback_data="ride_premium"),
+        types.InlineKeyboardButton("🚐 عائلية", callback_data="ride_family"),
+        types.InlineKeyboardButton("🚗 اقتصادية", callback_data="ride_economy"),
+        types.InlineKeyboardButton("↩️ رجوع", callback_data="back_to_main")
+    )
+    
+    return markup
+
+def create_payment_menu():
+    """قائمة وسائل الدفع"""
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    
+    markup.add(
+        types.InlineKeyboardButton("💳 بطاقة ائتمان", callback_data="pay_card"),
+        types.InlineKeyboardButton("📱 محفظة إلكترونية", callback_data="pay_wallet"),
+        types.InlineKeyboardButton("💵 نقداً", callback_data="pay_cash"),
+        types.InlineKeyboardButton("↩️ رجوع", callback_data="back_to_main")
+    )
+    
+    return markup
+
+def create_confirmation_menu():
+    """قائمة تأكيد"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    markup.add(
+        types.InlineKeyboardButton("✅ تأكيد", callback_data="confirm_yes"),
+        types.InlineKeyboardButton("❌ إلغاء", callback_data="confirm_no")
+    )
+    
+    return markup
+
+def create_rating_menu():
+    """قائمة التقييم"""
+    markup = types.InlineKeyboardMarkup(row_width=5)
+    
+    markup.add(
+        types.InlineKeyboardButton("⭐", callback_data="rate_1"),
+        types.InlineKeyboardButton("⭐⭐", callback_data="rate_2"),
+        types.InlineKeyboardButton("⭐⭐⭐", callback_data="rate_3"),
+        types.InlineKeyboardButton("⭐⭐⭐⭐", callback_data="rate_4"),
+        types.InlineKeyboardButton("⭐⭐⭐⭐⭐", callback_data="rate_5")
+    )
+    
+    return markup
+
+def create_quick_actions_menu():
+    """أزرار سريعة للعمليات المتكررة"""
+    markup = types.InlineKeyboardMarkup(row_width=3)
+    
+    markup.add(
+        types.InlineKeyboardButton("🚖 طلب", callback_data="quick_request"),
+        types.InlineKeyboardButton("📍 موقعي", callback_data="quick_location"),
+        types.InlineKeyboardButton("💰 رصيد", callback_data="quick_balance")
+    )
+    
+    markup.add(
+        types.InlineKeyboardButton("📞 دعم", callback_data="quick_support"),
+        types.InlineKeyboardButton("⭐ تقييم", callback_data="quick_rate"),
+        types.InlineKeyboardButton("⚙️ إعدادات", callback_data="quick_settings")
+    )
+    
+    return markup
+
+# ============================================================================
+# معالجات الأزرار التفاعلية
+# ============================================================================
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback_query(call):
+    """معالجة جميع ضغطات الأزرار التفاعلية"""
+    user_id = str(call.from_user.id)
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
+    
+    logger.info(f"🔘 ضغط زر: {call.data} من {user_id}")
+    
+    try:
+        # حذف الرسالة القديمة
+        bot.delete_message(chat_id, message_id)
+    except:
+        pass
+    
+    # معالجة البيانات حسب النوع
+    if call.data == "request_ride":
+        handle_ride_request_callback(chat_id)
+    
+    elif call.data == "my_rides":
+        handle_my_rides_callback(chat_id, user_id)
+    
+    elif call.data == "my_balance":
+        handle_balance_callback(chat_id, user_id)
+    
+    elif call.data == "settings":
+        handle_settings_callback(chat_id)
+    
+    elif call.data == "support":
+        handle_support_callback(chat_id)
+    
+    elif call.data == "about":
+        handle_about_callback(chat_id)
+    
+    elif call.data == "back_to_main":
+        handle_start_callback(chat_id, call.from_user)
+    
+    elif call.data.startswith("ride_"):
+        handle_ride_type_callback(chat_id, call.data)
+    
+    elif call.data.startswith("pay_"):
+        handle_payment_callback(chat_id, call.data)
+    
+    elif call.data.startswith("rate_"):
+        handle_rating_callback(chat_id, call.data, user_id)
+    
+    elif call.data == "driver_start":
+        handle_driver_start_callback(chat_id, user_id)
+    
+    elif call.data == "driver_stop":
+        handle_driver_stop_callback(chat_id, user_id)
+    
+    elif call.data == "view_requests":
+        handle_view_requests_callback(chat_id, user_id)
+    
+    # إضافة رد للزر المضغوط
+    bot.answer_callback_query(call.id, text="جاري المعالجة...")
+
+# ============================================================================
+# دوال معالجة الأزرار
+# ============================================================================
+
+def handle_ride_request_callback(chat_id):
+    """معالجة طلب رحلة عبر الزر"""
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("📍 أرسل موقعك تلقائياً", callback_data="send_location_auto"),
+        types.InlineKeyboardButton("📝 أدخل العنوان يدوياً", callback_data="enter_address"),
+        types.InlineKeyboardButton("🚗 اختر نوع السيارة", callback_data="select_car_type"),
+        types.InlineKeyboardButton("↩️ رجوع", callback_data="back_to_main")
+    )
+    
+    bot.send_message(
+        chat_id,
+        "📍 <b>طلب رحلة جديدة</b>\n\n"
+        "اختر طريقة تحديد الموقع:",
+        reply_markup=markup
+    )
+
+def handle_my_rides_callback(chat_id, user_id):
+    """معالجة عرض الرحلات"""
+    # عرض قائمة الرحلات مع أزرار
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("🔄 الرحلات الحالية", callback_data="current_rides"),
+        types.InlineKeyboardButton("📜 السابقة", callback_data="past_rides")
+    )
+    markup.add(
+        types.InlineKeyboardButton("📤 تصدير", callback_data="export_rides"),
+        types.InlineKeyboardButton("↩️ رجوع", callback_data="back_to_main")
+    )
+    
+    bot.send_message(
+        chat_id,
+        "📋 <b>رحلاتي</b>\n\n"
+        "يمكنك عرض الرحلات الحالية والسابقة:",
+        reply_markup=markup
+    )
+
+def handle_balance_callback(chat_id, user_id):
+    """معالجة عرض الرصيد"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("💳 شحن الرصيد", callback_data="recharge"),
+        types.InlineKeyboardButton("📤 سحب", callback_data="withdraw")
+    )
+    markup.add(
+        types.InlineKeyboardButton("💸 كوبون خصم", callback_data="coupon"),
+        types.InlineKeyboardButton("📊 التفاصيل", callback_data="balance_details")
+    )
+    markup.add(
+        types.InlineKeyboardButton("↩️ رجوع", callback_data="back_to_main")
+    )
+    
+    bot.send_message(
+        chat_id,
+        "💰 <b>رصيدك</b>\n\n"
+        f"• الرصيد الحالي: <b>0.00 ر.س</b>\n"
+        f"• الرصيد المحجوز: <b>0.00 ر.س</b>\n"
+        f"• إجمالي المشتريات: <b>0.00 ر.س</b>\n\n"
+        "اختر الإجراء المطلوب:",
+        reply_markup=markup
+    )
+
+def handle_settings_callback(chat_id):
+    """معالجة الإعدادات"""
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("👤 البيانات الشخصية", callback_data="edit_profile"),
+        types.InlineKeyboardButton("🔔 الإشعارات", callback_data="notifications"),
+        types.InlineKeyboardButton("🌍 اللغة", callback_data="language"),
+        types.InlineKeyboardButton("🔒 الخصوصية", callback_data="privacy"),
+        types.InlineKeyboardButton("📱 المظهر", callback_data="theme"),
+        types.InlineKeyboardButton("↩️ رجوع", callback_data="back_to_main")
+    )
+    
+    bot.send_message(
+        chat_id,
+        "⚙️ <b>الإعدادات</b>\n\n"
+        "يمكنك تخصيص إعدادات حسابك:",
+        reply_markup=markup
+    )
+
+def handle_support_callback(chat_id):
+    """معالجة الدعم الفني"""
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("📞 اتصال فوري", callback_data="call_support"),
+        types.InlineKeyboardButton("💬 محادثة نصية", callback_data="chat_support"),
+        types.InlineKeyboardButton("📧 بريد إلكتروني", callback_data="email_support"),
+        types.InlineKeyboardButton("❓ الأسئلة الشائعة", callback_data="faq"),
+        types.InlineKeyboardButton("↩️ رجوع", callback_data="back_to_main")
+    )
+    
+    bot.send_message(
+        chat_id,
+        "📞 <b>الدعم الفني</b>\n\n"
+        "• هاتف الدعم: <b>920000000</b>\n"
+        "• البريد: <b>support@example.com</b>\n"
+        "• ساعات العمل: 24/7\n\n"
+        "اختر طريقة التواصل:",
+        reply_markup=markup
+    )
+
+def handle_about_callback(chat_id):
+    """معالجة معلومات البوت"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("📱 التطبيق", callback_data="download_app"),
+        types.InlineKeyboardButton("📄 الشروط", callback_data="terms"),
+        types.InlineKeyboardButton("🔒 الخصوصية", callback_data="privacy_policy"),
+        types.InlineKeyboardButton("⭐ تقييم", callback_data="rate_app")
+    )
+    markup.add(
+        types.InlineKeyboardButton("↩️ رجوع", callback_data="back_to_main")
+    )
+    
+    bot.send_message(
+        chat_id,
+        "ℹ️ <b>عن بوت النقل الذكي</b>\n\n"
+        "🚖 <b>أول تطبيق نقل ذكي في المنطقة</b>\n\n"
+        "• بدأنا في 2024\n"
+        "• أكثر من 100,000 مستخدم\n"
+        "• 5,000+ سائق\n"
+        "• 4.8 ⭐ تقييم\n\n"
+        "<b>مميزاتنا:</b>\n"
+        "✓ رحلات آمنة\n"
+        "✓ أسعار تنافسية\n"
+        "✓ دفع إلكتروني\n"
+        "✓ تتبع مباشر",
+        reply_markup=markup
+    )
+
+def handle_driver_start_callback(chat_id, user_id):
+    """بدء عمل السائق"""
+    active_drivers[user_id] = {
+        'id': user_id,
+        'status': 'active',
+        'earnings': 0
+    }
+    
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("📍 تحديث الموقع", callback_data="update_location"),
+        types.InlineKeyboardButton("📊 الطلبات", callback_data="view_requests"),
+        types.InlineKeyboardButton("💰 الأرباح", callback_data="driver_earnings"),
+        types.InlineKeyboardButton("🔴 إيقاف", callback_data="driver_stop")
+    )
+    
+    bot.send_message(
+        chat_id,
+        "✅ <b>تم تفعيل وضع السائق!</b>\n\n"
+        "🎯 أنت الآن مرئي للعملاء\n"
+        "📱 ستستقبل طلبات جديدة تلقائياً\n"
+        "💰 ابدأ بكسب الأرباح الآن!\n\n"
+        "📊 <b>الأوامر السريعة:</b>",
+        reply_markup=markup
+    )
+
+def handle_view_requests_callback(chat_id, user_id):
+    """عرض طلبات الركوب"""
+    if ride_requests:
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for i, ride in enumerate(ride_requests[:5]):  # عرض أول 5 طلبات
+            markup.add(
+                types.InlineKeyboardButton(
+                    f"🚖 طلب #{i+1} - {ride.get('distance', '0')}km", 
+                    callback_data=f"accept_ride_{i}"
+                )
+            )
+        markup.add(types.InlineKeyboardButton("↩️ رجوع", callback_data="driver_dashboard"))
+    else:
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🔄 تحديث", callback_data="view_requests"))
+        markup.add(types.InlineKeyboardButton("↩️ رجوع", callback_data="driver_dashboard"))
+    
+    bot.send_message(
+        chat_id,
+        f"📊 <b>الطلبات المتاحة</b>\n\n"
+        f"• عدد الطلبات: <b>{len(ride_requests)}</b>\n"
+        f"• أقرب طلب: <b>1.5 كم</b>\n"
+        f"• متوسط السعر: <b>25 ر.س</b>\n\n"
+        f"اختر طلباً للقبول:",
+        reply_markup=markup
+    )
+
+# ============================================================================
+# معالجات الرسائل الرئيسية (محسنة)
+# ============================================================================
+
+@bot.message_handler(commands=['start', 'menu'])
+def handle_start(message):
+    """معالجة أمر /start مع واجهة تفاعلية"""
+    user_id = str(message.from_user.id)
+    name = message.from_user.first_name
+    
+    logger.info(f"👋 /start من: {name} ({user_id})")
+    
+    # حفظ بيانات المستخدم
+    users[user_id] = {
+        'id': user_id,
+        'name': name,
+        'username': message.from_user.username,
+        'role': None,
+        'balance': 0
+    }
+    
+    # إنشاء لوحة مفاتيح رئيسية
+    markup_reply = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup_reply.add(
+        types.KeyboardButton('🚖 طلب رحلة'),
+        types.KeyboardButton('📍 إرسال موقعي', request_location=True)
+    )
+    markup_reply.add(
+        types.KeyboardButton('💰 رصيدي'),
+        types.KeyboardButton('📋 رحلاتي')
+    )
+    markup_reply.add(
+        types.KeyboardButton('⚙️ الإعدادات'),
+        types.KeyboardButton('📞 الدعم')
+    )
+    
+    # إرسال الرسالة مع الأزرار التفاعلية
+    bot.send_message(
+        message.chat.id,
+        f"🎉 <b>مرحباً {name} في بوت النقل الذكي!</b>\n\n"
+        "🚖 <b>أسرع وأأمن خدمة نقل</b>\n"
+        "✨ <b>اختر الخدمة المطلوبة:</b>",
+        reply_markup=markup_reply
+    )
+    
+    # إرسال الأزرار التفاعلية الرئيسية
+    bot.send_message(
+        message.chat.id,
+        "📱 <b>القائمة التفاعلية السريعة:</b>",
+        reply_markup=create_main_menu()
+    )
+    
+    # إرسال أزرار سريعة للعمليات المتكررة
+    bot.send_message(
+        message.chat.id,
+        "⚡ <b>أوامر سريعة:</b>",
+        reply_markup=create_quick_actions_menu()
+    )
+
+def handle_start_callback(chat_id, user):
+    """نسخة من handle_start للاستدعاء من الأزرار"""
+    user_id = str(user.id)
+    name = user.first_name
+    
+    # إنشاء لوحة مفاتيح رئيسية
+    markup_reply = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup_reply.add(
+        types.KeyboardButton('🚖 طلب رحلة'),
+        types.KeyboardButton('📍 إرسال موقعي', request_location=True)
+    )
+    markup_reply.add(
+        types.KeyboardButton('💰 رصيدي'),
+        types.KeyboardButton('📋 رحلاتي')
+    )
+    markup_reply.add(
+        types.KeyboardButton('⚙️ الإعدادات'),
+        types.KeyboardButton('📞 الدعم')
+    )
+    
+    bot.send_message(
+        chat_id,
+        f"🏠 <b>القائمة الرئيسية</b>\n\n"
+        f"مرحباً مرة أخرى {name}!\n"
+        "اختر الخدمة المطلوبة:",
+        reply_markup=markup_reply
+    )
+    
+    bot.send_message(
+        chat_id,
+        "📱 <b>القائمة التفاعلية:</b>",
+        reply_markup=create_main_menu()
+    )
+
+@bot.message_handler(func=lambda message: message.text == '🚖 طلب رحلة')
+def handle_ride_request(message):
+    """طلب رحلة جديدة مع واجهة تفاعلية"""
+    logger.info(f"🚖 طلب رحلة من: {message.from_user.id}")
+    
+    # عرض أنواع الرحلات
+    bot.send_message(
+        message.chat.id,
+        "🚗 <b>اختر نوع الرحلة:</b>\n\n"
+        "• 🚗 عادية: سعر أساسي\n"
+        "• 🚙 فاخرة: راحة أكثر\n"
+        "• 🚐 عائلية: سيارة كبيرة\n"
+        "• 🚗 اقتصادية: توفير سعر",
+        reply_markup=create_ride_types_menu()
+    )
+
+@bot.message_handler(func=lambda message: message.text == '💰 رصيدي')
+def handle_balance(message):
+    """عرض الرصيد مع واجهة تفاعلية"""
+    user_id = str(message.from_user.id)
+    
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("💳 شحن الآن", callback_data="recharge_now"),
+        types.InlineKeyboardButton("📊 التفاصيل", callback_data="balance_details"),
+        types.InlineKeyboardButton("🎫 كوبون", callback_data="apply_coupon"),
+        types.InlineKeyboardButton("📤 سحب", callback_data="withdraw_funds")
+    )
+    
+    bot.send_message(
+        message.chat.id,
+        "💰 <b>حسابك المالي</b>\n\n"
+        f"• الرصيد المتاح: <b>0.00 ر.س</b>\n"
+        f"• المكافآت: <b>0.00 ر.س</b>\n"
+        f"• القسائم: <b>0</b>\n\n"
+        "اختر الإجراء:",
+        reply_markup=markup
+    )
+
+@bot.message_handler(func=lambda message: message.text == '⚙️ الإعدادات')
+def handle_settings(message):
+    """عرض الإعدادات مع واجهة تفاعلية"""
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("👤 تعديل الملف الشخصي", callback_data="edit_profile"),
+        types.InlineKeyboardButton("🔔 إدارة الإشعارات", callback_data="manage_notifications"),
+        types.InlineKeyboardButton("🌍 تغيير اللغة", callback_data="change_language"),
+        types.InlineKeyboardButton("🔐 الأمان والخصوصية", callback_data="security"),
+        types.InlineKeyboardButton("🗑️ حذف الحساب", callback_data="delete_account"),
+        types.InlineKeyboardButton("↩️ رجوع", callback_data="back_to_main")
+    )
+    
+    bot.send_message(
+        message.chat.id,
+        "⚙️ <b>الإعدادات والخصوصية</b>\n\n"
+        "إدارة إعدادات حسابك وتخصيص تجربتك:",
+        reply_markup=markup
+    )
+
+@bot.message_handler(func=lambda message: message.text == '📞 الدعم')
+def handle_support(message):
+    """عرض خيارات الدعم مع واجهة تفاعلية"""
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("📞 اتصال هاتفي", url="tel:+966500000000"),
+        types.InlineKeyboardButton("✉️ محادثة نصية", callback_data="start_chat"),
+        types.InlineKeyboardButton("📧 بريد إلكتروني", url="mailto:support@example.com"),
+        types.InlineKeyboardButton("📋 الأسئلة الشائعة", callback_data="show_faq"),
+        types.InlineKeyboardButton("📍 مواقع الفروع", callback_data="branches")
+    )
+    
+    bot.send_message(
+        message.chat.id,
+        "📞 <b>مركز الدعم والمساعدة</b>\n\n"
+        "💬 <b>الدردشة المباشرة:</b> 24/7\n"
+        "📱 <b>الهاتف:</b> 920000000\n"
+        "✉️ <b>البريد:</b> support@example.com\n\n"
+        "اختر طريقة التواصل:",
+        reply_markup=markup
+    )
+
+@bot.message_handler(content_types=['location'])
+def handle_location(message):
+    """معالجة الموقع مع عرض أزرار تفاعلية"""
+    location = message.location
+    
+    logger.info(f"📍 موقع من: {message.from_user.id}")
+    
+    # إنشاء أزرار تفاعلية بعد استلام الموقع
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("✅ تأكيد الموقع", callback_data="confirm_location"),
+        types.InlineKeyboardButton("🔄 إعادة الإرسال", callback_data="resend_location")
+    )
+    markup.add(
+        types.InlineKeyboardButton("📍 اختيار من الخريطة", callback_data="pick_from_map"),
+        types.InlineKeyboardButton("🚖 طلب الآن", callback_data="request_now")
+    )
+    
+    bot.send_message(
+        message.chat.id,
+        f"📍 <b>تم استلام موقعك!</b>\n\n"
+        f"• <b>الإحداثيات:</b>\n"
+        f"  خط العرض: {location.latitude:.6f}\n"
+        f"  خط الطول: {location.longitude:.6f}\n\n"
+        f"هل تريد تأكيد هذا الموقع؟",
+        reply_markup=markup
+    )
+
+@bot.message_handler(func=lambda message: message.text == '👤 حسابي')
+def handle_profile(message):
+    """عرض الملف الشخصي مع أزرار تفاعلية"""
+    user_id = str(message.from_user.id)
+    user_data = users.get(user_id, {})
+    
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("✏️ تعديل الاسم", callback_data="edit_name"),
+        types.InlineKeyboardButton("📱 رقم الجوال", callback_data="edit_phone")
+    )
+    markup.add(
+        types.InlineKeyboardButton("📧 البريد الإلكتروني", callback_data="edit_email"),
+        types.InlineKeyboardButton("📷 الصورة", callback_data="edit_photo")
+    )
+    markup.add(
+        types.InlineKeyboardButton("⭐ تقييماتي", callback_data="my_ratings"),
+        types.InlineKeyboardButton("🏆 إنجازات", callback_data="achievements")
+    )
+    
+    bot.send_message(
+        message.chat.id,
+        f"👤 <b>الملف الشخصي</b>\n\n"
+        f"• <b>الاسم:</b> {user_data.get('name', 'غير محدد')}\n"
+        f"• <b>رقم العضوية:</b> #{user_id[-6:]}\n"
+        f"• <b>تاريخ التسجيل:</b> اليوم\n"
+        f"• <b>عدد الرحلات:</b> 0\n"
+        f"• <b>التقييم:</b> ⭐⭐⭐⭐⭐\n\n"
+        f"اختر ما تريد تعديله:",
+        reply_markup=markup
+    )
+
+@bot.message_handler(func=lambda message: message.text == '🎫 العروض')
+def handle_offers(message):
+    """عرض العروض والكوبونات"""
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("🎁 احصل على أول رحلة مجاناً", callback_data="offer_first_ride"),
+        types.InlineKeyboardButton("👥 دعوة أصدقاء - احصل على 50 ر.س", callback_data="invite_friends"),
+        types.InlineKeyboardButton("📱 حمّل التطبيق - خصم 20%", callback_data="download_app_offer"),
+        types.InlineKeyboardButton("🎯 عرض العودة - 30% خصم", callback_data="comeback_offer"),
+        types.InlineKeyboardButton("📊 جميع العروض", callback_data="all_offers")
+    )
+    
+    bot.send_message(
+        message.chat.id,
+        "🎫 <b>العروض والترقيات</b>\n\n"
+        "🔥 <b>عروض حصرية لك!</b>\n\n"
+        "1. 🎁 <b>الرحلة الأولى مجاناً</b>\n"
+        "   - لحد 50 ريال\n"
+        "   - صالح لـ 7 أيام\n\n"
+        "2. 👥 <b>دعوة أصدقاء</b>\n"
+        "   - احصل على 50 ريال\n"
+        "   - لكل صديق\n\n"
+        "3. 📱 <b>خصم التطبيق</b>\n"
+        "   - خصم 20% على أول 5 رحلات\n\n"
+        "اختر العرض:",
+        reply_markup=markup
+    )
+
+@bot.message_handler(func=lambda message: True)
+def handle_all_messages(message):
+    """معالجة جميع الرسائل الأخرى مع اقتراحات تفاعلية"""
+    logger.info(f"📩 رسالة: {message.text} من {message.from_user.id}")
+    
+    # إنشاء أزرار سريعة للرد
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("🚖 طلب رحلة", callback_data="request_ride"),
+        types.InlineKeyboardButton("💰 رصيدي", callback_data="my_balance")
+    )
+    markup.add(
+        types.InlineKeyboardButton("📞 الدعم", callback_data="support"),
+        types.InlineKeyboardButton("🏠 القائمة", callback_data="back_to_main")
+    )
+    
+    bot.reply_to(
+        message,
+        "🤖 <b>مرحباً!</b>\n\n"
+        "يمكنني مساعدتك في:\n"
+        "• طلب رحلة 🚖\n"
+        "• معرفة رصيدك 💰\n"
+        "• الدعم الفني 📞\n\n"
+        "اختر من الأزرار أدناه أو اكتب /start",
+        reply_markup=markup
+    )
+
+# ============================================================================
+# صفحات الويب (محفوظة كما هي)
 # ============================================================================
 
 @app.route('/')
@@ -85,11 +728,16 @@ def home():
                 border-radius: 20px;
                 text-align: center;
             }}
-            .status {{
-                padding: 10px 20px;
+            .features {{
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 15px;
+                margin: 30px 0;
+            }}
+            .feature {{
                 background: rgba(255, 255, 255, 0.2);
+                padding: 15px;
                 border-radius: 10px;
-                margin: 20px 0;
             }}
             .btn {{
                 display: inline-block;
@@ -106,13 +754,23 @@ def home():
     <body>
         <div class="container">
             <h1>🚖 بوت النقل الذكي</h1>
-            <p>نظام متكامل لإدارة طلبات النقل</p>
+            <p>نظام متكامل بإمكانيات تفاعلية متطورة</p>
             
-            <div class="status">
+            <div style="background: rgba(255,255,255,0.2); padding: 20px; border-radius: 10px; margin: 20px 0;">
                 <p>🟢 <strong>الخادم يعمل بنجاح</strong></p>
                 <p>🤖 <strong>البوت:</strong> {bot_status}</p>
                 <p>👥 <strong>المستخدمين:</strong> {len(users)}</p>
                 <p>🚕 <strong>السائقين:</strong> {len(active_drivers)}</p>
+            </div>
+            
+            <h3>✨ المميزات الجديدة:</h3>
+            <div class="features">
+                <div class="feature">🎯 واجهة تفاعلية</div>
+                <div class="feature">🚖 أزرار سريعة</div>
+                <div class="feature">💰 شحن إلكتروني</div>
+                <div class="feature">⭐ تقييم مباشر</div>
+                <div class="feature">📍 تحديد مواقع</div>
+                <div class="feature">📊 إحصائيات حية</div>
             </div>
             
             <div>
@@ -123,7 +781,7 @@ def home():
             
             <div style="margin-top: 40px; opacity: 0.8;">
                 <p>🔗 الرابط: https://dhhfhfjd.onrender.com</p>
-                <p>© 2024 بوت النقل الذكي</p>
+                <p>© 2024 بوت النقل الذكي - الإصدار التفاعلي</p>
             </div>
         </div>
     </body>
@@ -134,18 +792,11 @@ def home():
 def set_webhook():
     """تعيين ويب هوك"""
     try:
-        # الحصول على رابط التطبيق الحالي
         webhook_url = f"https://{request.host}/webhook"
-        
         logger.info(f"🔄 محاولة تعيين ويب هوك على: {webhook_url}")
         
-        # إزالة أي ويب هوك سابق
         bot.remove_webhook()
-        
-        # تعيين ويب هوك جديد
         result = bot.set_webhook(url=webhook_url)
-        
-        # الحصول على معلومات البوت
         bot_info = bot.get_me()
         
         return f'''
@@ -155,11 +806,7 @@ def set_webhook():
             <meta charset="UTF-8">
             <title>✅ تم تعيين الويب هوك</title>
             <style>
-                body {{
-                    padding: 50px;
-                    text-align: center;
-                    font-family: Arial, sans-serif;
-                }}
+                body {{ padding: 50px; text-align: center; }}
                 .success {{
                     background: #d4edda;
                     color: #155724;
@@ -173,13 +820,14 @@ def set_webhook():
         <body>
             <div class="success">
                 <h2>✅ تم تعيين الويب هوك بنجاح!</h2>
-                <p><strong>البوت:</strong> @{bot_info.username}</p>
+                <p><strong>البوت التفاعلي:</strong> @{bot_info.username}</p>
                 <p><strong>الرابط:</strong> {webhook_url}</p>
-                <p><strong>النتيجة:</strong> {result}</p>
+                <p><strong>الميزات:</strong> أزرار تفاعلية، واجهة محسنة</p>
             </div>
             <div style="margin-top: 30px;">
-                <a href="https://t.me/{bot_info.username}" target="_blank" style="padding: 10px 20px; background: #0088cc; color: white; text-decoration: none; border-radius: 5px;">
-                    💬 افتح البوت الآن على Telegram
+                <a href="https://t.me/{bot_info.username}" target="_blank" 
+                   style="padding: 10px 20px; background: #0088cc; color: white; text-decoration: none; border-radius: 5px;">
+                    💬 افتح البوت الآن
                 </a>
             </div>
             <div style="margin-top: 20px;">
@@ -206,7 +854,7 @@ def test_bot():
     <html dir="rtl">
     <head>
         <meta charset="UTF-8">
-        <title>🧪 اختبار البوت</title>
+        <title>🧪 اختبار البوت التفاعلي</title>
         <style>
             body { padding: 30px; font-family: Arial; text-align: center; }
             .instructions { 
@@ -217,32 +865,57 @@ def test_bot():
                 margin: 20px auto;
                 max-width: 500px;
             }
+            .btn-test {
+                display: inline-block;
+                padding: 10px 20px;
+                margin: 5px;
+                background: #28a745;
+                color: white;
+                border-radius: 5px;
+                text-decoration: none;
+            }
         </style>
     </head>
     <body>
-        <h1>🧪 اختبار البوت</h1>
+        <h1>🧪 اختبار البوت التفاعلي</h1>
         
         <div class="instructions">
+            <h3>🚀 مميزات البوت الجديدة:</h3>
+            <ul>
+                <li>🎯 واجهة تفاعلية مع أزرار داخلية</li>
+                <li>🚖 طلب رحلة بنقرة واحدة</li>
+                <li>💰 شحن الرصيد مباشرة</li>
+                <li>⭐ تقييم السائق بسهولة</li>
+                <li>📍 تحديد مواقع متقدم</li>
+                <li>📊 إحصائيات فورية</li>
+            </ul>
+            
             <h3>📱 خطوات الاختبار:</h3>
             <ol>
-                <li>افتح تطبيق Telegram على هاتفك</li>
+                <li>افتح تطبيق Telegram</li>
                 <li>ابحث عن: <strong>@Dhdhdyduudbot</strong></li>
                 <li>أرسل: <code>/start</code></li>
-                <li>اضغط على "👤 عميل" أو "🚖 سائق"</li>
-                <li>جرب الأزرار المختلفة</li>
+                <li>جرب الأزرار التفاعلية داخل الرسائل</li>
+                <li>استخدم القوائم المنبثقة</li>
             </ol>
-            
-            <p>إذا لم يرد البوت، جرب:</p>
-            <ul>
-                <li>أعد تعيين الويب هوك</li>
-                <li>انتظر 1-2 دقيقة</li>
-                <li>أعد فتح محادثة البوت</li>
-            </ul>
         </div>
         
         <div style="margin-top: 30px;">
-            <a href="https://t.me/Dhdhdyduudbot" target="_blank" style="padding: 15px 30px; background: #0088cc; color: white; text-decoration: none; border-radius: 8px; font-size: 1.2em;">
-                🚀 افتح البوت الآن
+            <h3>🔘 جرب هذه الأزرار في البوت:</h3>
+            <div>
+                <span class="btn-test">🚖 طلب رحلة</span>
+                <span class="btn-test">💰 رصيدي</span>
+                <span class="btn-test">⭐ التقييمات</span>
+                <span class="btn-test">🎫 العروض</span>
+                <span class="btn-test">⚙️ الإعدادات</span>
+                <span class="btn-test">📞 الدعم</span>
+            </div>
+        </div>
+        
+        <div style="margin-top: 30px;">
+            <a href="https://t.me/Dhdhdyduudbot" target="_blank" 
+               style="padding: 15px 30px; background: #0088cc; color: white; text-decoration: none; border-radius: 8px; font-size: 1.2em;">
+                🚀 افتح البوت التفاعلي الآن
             </a>
         </div>
         
@@ -258,250 +931,35 @@ def webhook():
     """نقطة استقبال تحديثات Telegram"""
     if request.headers.get('content-type') == 'application/json':
         try:
-            # تحويل JSON إلى تحديث
             json_string = request.get_data().decode('utf-8')
             update = telebot.types.Update.de_json(json_string)
-            
-            # تسجيل التحديث الوارد
             logger.info(f"📩 استلام تحديث: {update.update_id}")
-            
-            # معالجة التحديث
             bot.process_new_updates([update])
-            
             logger.info(f"✅ تم معالجة تحديث: {update.update_id}")
             return 'OK', 200
-            
         except Exception as e:
             logger.error(f"❌ خطأ في ويب هوك: {e}")
             return 'Error', 500
-    
     return 'Bad Request', 400
 
 # ============================================================================
-# معالجات البوت
-# ============================================================================
-
-@bot.message_handler(commands=['start', 'help'])
-def handle_start(message):
-    """معالجة أمر /start"""
-    user_id = str(message.from_user.id)
-    name = message.from_user.first_name
-    
-    # تسجيل وصول الرسالة
-    logger.info(f"👋 /start من: {name} ({user_id})")
-    
-    # حفظ بيانات المستخدم
-    users[user_id] = {
-        'id': user_id,
-        'name': name,
-        'username': message.from_user.username,
-        'role': None
-    }
-    
-    # إنشاء لوحة المفاتيح
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(
-        types.KeyboardButton('👤 عميل'),
-        types.KeyboardButton('🚖 سائق')
-    )
-    
-    # الرد
-    bot.send_message(
-        message.chat.id,
-        f"🎉 <b>مرحباً بك {name} في بوت النقل الذكي!</b>\n\n"
-        "🚖 <b>خدمة نقل ذكية توفر لك:</b>\n"
-        "• رحلات سريعة وآمنة\n"
-        "• تتبع مباشر للرحلة\n"
-        "• دفع إلكتروني آمن\n"
-        "• تقييمات موثوقة\n\n"
-        "📱 <b>اختر دورك للبدء:</b>",
-        reply_markup=markup
-    )
-    
-    logger.info(f"✅ تم الرد على {name}")
-
-@bot.message_handler(func=lambda message: message.text in ['👤 عميل', '🚖 سائق'])
-def handle_role(message):
-    """معالجة اختيار الدور"""
-    user_id = str(message.from_user.id)
-    role = 'عميل' if message.text == '👤 عميل' else 'سائق'
-    
-    logger.info(f"🎭 اختيار دور: {role} من: {user_id}")
-    
-    # تحديث دور المستخدم
-    if user_id in users:
-        users[user_id]['role'] = role
-    
-    # إنشاء القائمة المناسبة
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    
-    if role == 'عميل':
-        markup.add(
-            types.KeyboardButton('🚖 طلب رحلة'),
-            types.KeyboardButton('📍 إرسال موقعي', request_location=True)
-        )
-        markup.add(
-            types.KeyboardButton('📋 رحلاتي'),
-            types.KeyboardButton('💰 رصيدي')
-        )
-    else:
-        markup.add(
-            types.KeyboardButton('🟢 بدء الخدمة'),
-            types.KeyboardButton('🔴 إيقاف الخدمة')
-        )
-        markup.add(
-            types.KeyboardButton('📍 تحديث موقعي', request_location=True),
-            types.KeyboardButton('📊 الرحلات النشطة')
-        )
-    
-    markup.add(types.KeyboardButton('📞 المساعدة'))
-    
-    # الرد
-    bot.send_message(
-        message.chat.id,
-        f"✅ <b>تم تسجيلك كـ {role} بنجاح!</b>\n\n"
-        f"🔧 <b>اختر الخدمة المناسبة:</b>",
-        reply_markup=markup
-    )
-    
-    logger.info(f"✅ تم تعيين دور {role} لـ {user_id}")
-
-@bot.message_handler(func=lambda message: message.text == '🚖 طلب رحلة')
-def handle_ride_request(message):
-    """طلب رحلة جديدة"""
-    logger.info(f"🚖 طلب رحلة من: {message.from_user.id}")
-    
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(
-        types.KeyboardButton('📍 إرسال موقعي', request_location=True),
-        types.KeyboardButton('رجوع')
-    )
-    
-    bot.send_message(
-        message.chat.id,
-        "📍 <b>طلب رحلة جديدة</b>\n\n"
-        "الرجاء إرسال موقعك الحالي لتحديد نقطة الانطلاق.",
-        reply_markup=markup
-    )
-
-@bot.message_handler(func=lambda message: message.text == '🟢 بدء الخدمة')
-def handle_start_service(message):
-    """بدء خدمة السائق"""
-    user_id = str(message.from_user.id)
-    
-    logger.info(f"🟢 بدء خدمة سائق: {user_id}")
-    
-    active_drivers[user_id] = {
-        'id': user_id,
-        'name': users.get(user_id, {}).get('name', 'Unknown'),
-        'status': 'active'
-    }
-    
-    bot.send_message(
-        message.chat.id,
-        "✅ <b>تم تفعيل وضع السائق!</b>\n\n"
-        "🎯 أنت الآن تستقبل طلبات الركوب تلقائياً.\n"
-        "📍 تأكد من تحديث موقعك بانتظام.\n\n"
-        "لإيقاف الخدمة، اضغط '🔴 إيقاف الخدمة'"
-    )
-
-@bot.message_handler(func=lambda message: message.text == '🔴 إيقاف الخدمة')
-def handle_stop_service(message):
-    """إيقاف خدمة السائق"""
-    user_id = str(message.from_user.id)
-    
-    logger.info(f"🔴 إيقاف خدمة سائق: {user_id}")
-    
-    if user_id in active_drivers:
-        del active_drivers[user_id]
-    
-    bot.send_message(
-        message.chat.id,
-        "🔴 <b>تم إيقاف خدمة الاستقبال</b>\n\n"
-        "للعودة لاستقبال الطلبات، اضغط '🟢 بدء الخدمة'"
-    )
-
-@bot.message_handler(content_types=['location'])
-def handle_location(message):
-    """معالجة الموقع المرسل"""
-    location = message.location
-    
-    logger.info(f"📍 موقع من: {message.from_user.id} - {location.latitude}, {location.longitude}")
-    
-    response = (
-        "📍 <b>تم استلام موقعك بنجاح!</b>\n\n"
-        f"• <b>خط العرض:</b> {location.latitude:.6f}\n"
-        f"• <b>خط الطول:</b> {location.longitude:.6f}\n\n"
-    )
-    
-    user_id = str(message.from_user.id)
-    
-    if user_id in users and users[user_id]['role'] == 'عميل':
-        response += "🚖 <b>تم إنشاء طلب رحلة!</b>\n"
-        response += "⏳ جاري البحث عن سائق قريب..."
-    elif user_id in users and users[user_id]['role'] == 'سائق':
-        response += "✅ <b>تم تحديث موقع السائق</b>"
-    
-    bot.send_message(message.chat.id, response)
-
-@bot.message_handler(func=lambda message: message.text == '📞 المساعدة')
-def handle_help(message):
-    """عرض رسالة المساعدة"""
-    bot.send_message(
-        message.chat.id,
-        "📞 <b>مساعدة بوت النقل</b>\n\n"
-        "<b>👤 للعملاء:</b>\n"
-        "• استخدم /start للبدء\n"
-        "• اختر '👤 عميل'\n"
-        "• اضغط '🚖 طلب رحلة'\n"
-        "• أرسل موقعك\n\n"
-        "<b>🚖 للسائقين:</b>\n"
-        "• اختر '🚖 سائق'\n"
-        "• اضغط '🟢 بدء الخدمة'\n"
-        "• أرسل موقعك\n\n"
-        "<b>📋 الأوامر:</b>\n"
-        "/start - بدء البوت\n"
-        "/help - هذه الرسالة\n\n"
-        "<b>📞 الدعم:</b>\n"
-        "للشكاوى والاستفسارات، تواصل مع الدعم الفني."
-    )
-
-@bot.message_handler(func=lambda message: True)
-def handle_all_messages(message):
-    """معالجة جميع الرسائل الأخرى"""
-    logger.info(f"📩 رسالة عامة: {message.text} من {message.from_user.id}")
-    
-    bot.reply_to(
-        message,
-        "🤖 <b>مرحباً!</b>\n\n"
-        "استخدم /start لرؤية القائمة الرئيسية.\n"
-        "أو اختر من الأزرار في القائمة."
-    )
-
-# ============================================================================
-# تهيئة البوت
+# تهيئة وتشغيل
 # ============================================================================
 
 def init_bot():
-    """تهيئة البوت عند التشغيل"""
+    """تهيئة البوت"""
     try:
-        # اختبار البوت
         bot_info = bot.get_me()
-        logger.info(f"✅ البوت جاهز: @{bot_info.username} ({bot_info.first_name})")
-        
-        # تسجيل المعالجات
-        logger.info("✅ تم تسجيل جميع معالجات الرسائل")
-        
+        logger.info(f"✅ البوت التفاعلي جاهز: @{bot_info.username}")
+        logger.info("✅ تم تحميل الواجهة التفاعلية مع الأزرار")
         return True
     except Exception as e:
         logger.error(f"❌ فشل تهيئة البوت: {e}")
         return False
 
-# تهيئة البوت
 if __name__ != '__main__':
     init_bot()
 
-# للتنمية المحلية فقط
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     logger.info(f"🚀 بدء التشغيل على منفذ {port}")
