@@ -1,64 +1,161 @@
+import asyncio
+import os
 import re
-import psycopg2
+from pyrogram import Client, filters
+from telegram import Bot
+from telegram.constants import ParseMode
 
-# ضع هنا بيانات قاعدة البيانات الخاصة بك
-DB_URL = "postgresql://postgres.nmteaqxrtcegxmgvsbzr:mohammedfahdypb@aws-1-ap-south-1.pooler.supabase.com:6543/postgres"
-BOT_TOKEN = "8498451295:AAGt1R7THllSjYtEe5hvIEPnPhRkS_iBcnU"
+# استيراد الدوال والمتغيرات من ملفك الأساسي (iib.py)
+# استورد من الملف الجديد بدلاً من iib.py
+from config import get_db_connection, normalize_text, CITIES_DISTRICTS, BOT_TOKEN
 
-CITIES_DISTRICTS = {
-    "المدينة المنورة": [
-        "الإسكان", "البحر", "البدراني", "الفتح", "التلال", "الجرف", "الحزام", "الحمراء",
-        "الخالدية", "الدويخله", "الرانونا", "الربوة", "الشروق", "الشرق",
-        "العاقول", "العريض", "العزيزية", "العنابس", "القبلتين", "المبعوث",
-        "المطار", "المغيسله", "الملك فهد", "النبلاء", "الهجرة", "باقدو",
-        "بني حارثة", "حديقة الملك فهد", "سيد الشهداء", "شوران", "قباء", "مهزور",
-        "شظاة", "مستشفى الملك فهد", "مستشفى الملك سلمان", "مستشفى الولادة",
-        "مستشفى المواساة", "النور مول", "العالية مول", "القارات",
-        "العيون", "طريق الملك عبدالعزيز", "الدائري"
-    ]
-}
+from flask import Flask
+from threading import Thread
 
-def get_db_connection():
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot is Running!"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# --- الإعدادات ---
+API_ID = "36360458"
+API_HASH = "daae4628b4b4aac1f0ebfce23c4fa272"
+
+# كلمات تدل على وجود طلب (تم توسيعها وترتيبها)
+KEYWORDS = [
+    "مشوار", "توصيل", "تكسي", "تاكسي", "مطلوب", "محتاج", "سواقه", "سواق", 
+    "سياره", "اوصل", "يوصلني", "اروح", "نقل", "طلبية", "اغراض", "توصيله", 
+    "ناقصني", "مندوب", "ابغى", "ابي", "يوصل", "فاضي", "مين يوصل", 
+    "الاياب", "الذهاب", "نقل عفش", "دباب"
+]
+
+# كلمات استبعادية لمنع الإعلانات المزعجة
+EXCLUDED_WORDS = [
+    "موجود الان", "تواصل معي", "انا كابتن", "سيارتي", "جاهز للتوصيل", 
+    "عروض", "خصم", "للايجار", "وظائف", "تأجير"
+]
+
+# تعريف العميل والبوت
+user_app = Client("user_session", api_id=API_ID, api_hash=API_HASH)
+bot_sender = Bot(token=BOT_TOKEN)
+
+# في ملف scraper.py - تعديل الهاندلر ليكون عاماً
+@user_app.on_message(filters.group & ~filters.service)
+async def scan_groups(client, message):
+    if not message.text:
+        return
+
+    # طباعة في Termux للتأكد أن الرقم يرى الرسائل
+    print(f"📥 رسالة جديدة من مجموعة: {message.chat.title}")
+
+    text_clean = normalize_text(message.text)
+
+    # 1. استبعاد رسائل الكباتن/الإعلانات
+    if any(ex in text_clean for ex in EXCLUDED_WORDS):
+        return
+
+    # 2. البحث عن الكلمات المفتاحية (مشوار، توصيل...)
+    if any(key in text_clean for key in KEYWORDS):
+        found_district = None
+        found_city = None
+        
+        # 3. البحث عن الحي في الرسالة
+        for city, districts in CITIES_DISTRICTS.items():
+            for district in districts:
+                if normalize_text(district) in text_clean:
+                    found_district = district
+                    found_city = city
+                    break
+            if found_district: break
+        
+        # 4. إذا وجد حي، يتم التحويل فوراً للسائقين عبر البوت
+        if found_district:
+            print(f"✅ تم اكتشاف طلب في حي: {found_district}")
+            await notify_drivers_by_district(found_city, found_district, message)
+
+async def notify_drivers_by_district(city, district, original_msg):
+    conn = get_db_connection()
+    if not conn: return
+    
+    drivers = []
     try:
-        conn = psycopg2.connect(DB_URL)
-        return conn
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT user_id FROM users WHERE role = 'driver' AND districts ILIKE %s",
+                (f"%{district}%",)
+            )
+            drivers = [row[0] for row in cur.fetchall()]
     except Exception as e:
-        print(f"❌ فشل الاتصال بقاعدة البيانات: {e}")
-        return None
+        print(f"❌ خطأ في قاعدة البيانات: {e}")
+    finally:
+        conn.close()
 
+    if not drivers: return
 
-def normalize_text(text):
-    if not text: return ""
-    # إزالة التشكيل
-    text = re.sub(r"[\u064B-\u0652]", "", text)
-    # توحيد الحروف (أ إ آ -> ا، ة -> ه)
-    text = text.replace("ة", "ه").replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
-    # إزالة تكرار الحروف (مثل: مشواااار -> مشوار)
-    text = re.sub(r'(.)\1+', r'\1', text)
-    return text.strip().lower()
+    # --- التعديل هنا لفتح خاص العميل مباشرة ---
+    customer = original_msg.from_user
+    
+    # إذا كان لدى العميل "اسم مستخدم" (Username) نستخدمه، وإلا نستخدم الـ ID الخاص به
+    if customer.username:
+        customer_link = f"https://t.me/{customer.username}"
+    else:
+        customer_link = f"tg://user?id={customer.id}"
+    
+    alert_text = (
+        f"🚨 **طلب مشوار جديد!**\n\n"
+        f"📍 **الحي:** {district} ({city})\n"
+        f"👤 **العميل:** {customer.first_name}\n"
+        f"📝 **الطلب:**\n_{original_msg.text}_\n\n"
+        f"📥 [اضغط هنا لمراسلة العميل خاص]({customer_link})"
+    )
 
-def normalize_text(text):
-    if not text: return ""
-    # إزالة المسافات الزائدة وتحويل للحروف الصغيرة
-    text = text.strip().lower()
-    # توحيد الحروف المتشابهة
-    replacements = {
-        "أ": "ا", "إ": "ا", "آ": "ا",
-        "ة": "ه",
-        "ى": "ي",
-        "ئ": "ي", "ؤ": "و"
-    }
-    for old, new in replacements.items():
-        text = text.replace(old, new)
+    for d_id in drivers:
+        try:
+            await bot_sender.send_message(
+                chat_id=d_id, 
+                text=alert_text, 
+                parse_mode=ParseMode.MARKDOWN
+            )
+            await asyncio.sleep(0.05)
+        except: continue
+    # إرسال الرسالة للسائقين المشتركين
+    for d_id in drivers:
+        try:
+            await bot_sender.send_message(
+                chat_id=d_id,
+                text=alert_text,
+                parse_mode=ParseMode.MARKDOWN
+            )
+            await asyncio.sleep(0.05) # حماية من السبام
+        except Exception:
+            continue
 
-    # إزالة (الـ) التعريف من البداية لجعل البحث مرناً (اختياري لكنه قوي)
-    # مثال: "عزيزيه" ستطابق "العزيزية"
-    words = text.split()
-    clean_words = []
-    for w in words:
-        if w.startswith("ال") and len(w) > 3:
-            clean_words.append(w[2:])
-        else:
-            clean_words.append(w)
+async def run_scraper():
+    print("🚀 جاري تشغيل الرادار وتحديث بيانات المجموعات...")
+    await user_app.start()
+    
+    # هذه الخطوة ستحل مشكلة "Peer id invalid" للأبد
+    # تقوم بجلب المجموعات المشترك فيها الحساب وتخزينها في ملف الجلسة
+    print("🔄 جاري مزامنة المجموعات، يرجى الانتظار...")
+    async for dialog in user_app.get_dialogs():
+        pass  # مجرد المرور عليها يكفي لتخزين بياناتها
+        
+    print("✅ تم التنشيط! الرادار يراقب جميع المجموعات الآن...")
+    
+    # إبقاء السكرابر يعمل باستمرار
+    await asyncio.Event().wait()
 
-    return " ".join(clean_words)
+if __name__ == "__main__":
+    try:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(run_scraper())
+    except KeyboardInterrupt:
+        print("👋 تم إيقاف الرادار.")
