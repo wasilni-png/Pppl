@@ -1,3 +1,19 @@
-Flask==2.3.3
-pyTelegramBotAPI==4.14.0
-gunicorn==21.2.0
+  GNU nano 8.7                                 requirements.txt
+python-telegram-bot[job-queue]
+pyrogram
+tgcrypto
+
+# قاعدة البيانات
+
+psycopg2-binary
+
+# السيرفر وطلبات الشبكة
+flask
+httpx
+
+# الموقع الجغرافي والتعامل مع المسافات
+geopy
+
+
+
+
