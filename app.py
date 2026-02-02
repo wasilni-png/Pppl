@@ -33,13 +33,20 @@ def run_health_check():
 # --- دالة إرسال الإشعارات للسائقين (فتح خاص العميل) ---
 async def notify_drivers(city, district, original_msg):
     conn = get_db_connection()
-    if not conn: return
+    if not conn: 
+        print("❌ فشل الاتصال بقاعدة البيانات")
+        return
     
     try:
+        # توحيد النص للبحث بمرونة أكبر (ة/هـ)
+        search_term = district.replace('ة', 'ه').replace('أ', 'ا')
+        
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT user_id FROM users WHERE role = 'driver' AND districts ILIKE %s",
-                (f"%{district}%",)
+                """SELECT user_id FROM users 
+                   WHERE role = 'driver' 
+                   AND (REPLACE(REPLACE(districts, 'ة', 'ه'), 'أ', 'ا') ILIKE %s)""",
+                (f"%{search_term}%",)
             )
             drivers = [row[0] for row in cur.fetchall()]
     except Exception as e:
@@ -47,25 +54,34 @@ async def notify_drivers(city, district, original_msg):
         return
     finally: conn.close()
 
+    print(f"📡 محاولة إرسال لـ {len(drivers)} سائق في حي {district}...")
+
     if not drivers: return
 
-    # تحضير رابط "خاص العميل"
     customer = original_msg.from_user
+    customer_name = customer.first_name if customer.first_name else "عميل"
     customer_link = f"tg://user?id={customer.id}" if not customer.username else f"https://t.me/{customer.username}"
     
     alert_text = (
-        f"🚨 **طلب مشوار جديد مُلتقط!**\n\n"
-        f"📍 **الحي:** {district} ({city})\n"
-        f"👤 **العميل:** {customer.first_name}\n"
+        f"🚨 **طلب مشوار جديد!**\n\n"
+        f"📍 **الحي:** {district}\n"
+        f"👤 **العميل:** {customer_name}\n"
         f"📝 **الطلب:**\n_{original_msg.text}_\n\n"
         f"📥 [اضغط هنا لمراسلة العميل خاص]({customer_link})"
     )
 
+    sent_count = 0
     for d_id in drivers:
         try:
             await bot_sender.send_message(chat_id=d_id, text=alert_text, parse_mode=ParseMode.MARKDOWN)
+            sent_count += 1
             await asyncio.sleep(0.05)
-        except: continue
+        except Exception as e:
+            print(f"⚠️ فشل الإرسال للسائق {d_id}: {e}")
+            continue
+            
+    print(f"✅ تم إرسال التنبيه لـ {sent_count} سائق بنجاح.")
+
 
 # --- رادار مراقبة المجموعات ---
 @user_app.on_message(filters.group & ~filters.service)
