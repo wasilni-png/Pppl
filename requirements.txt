@@ -2,7 +2,7 @@ pyrogram
 tgcrypto
 python-telegram-bot
 psycopg2-binary
-
+httpx
 
 
 
