@@ -1,17 +1,7 @@
-python-telegram-bot[job-queue]
 pyrogram
 tgcrypto
-
-# قاعدة البيانات
-
+python-telegram-bot
 psycopg2-binary
-
-# السيرفر وطلبات الشبكة
-flask
-httpx
-
-# الموقع الجغرافي والتعامل مع المسافات
-geopy
 
 
 
