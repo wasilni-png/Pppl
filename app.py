@@ -1,60 +1,51 @@
 import asyncio
 import threading
+import httpx
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pyrogram import Client, filters
 from telegram import Bot
 from telegram.constants import ParseMode
 
-# --- الإعدادات من ملف config الخاص بك ---
+# استيراد الإعدادات
 from config import get_db_connection, normalize_text, CITIES_DISTRICTS, BOT_TOKEN
 
-# إعدادات الحساب (UserBot)
+# إعدادات الحساب
 API_ID = "36360458"
 API_HASH = "daae4628b4b4aac1f0ebfce23c4fa272"
-# الصق الكود الطويل الذي أرسلته هنا
 SESSION_STRING = "BAIq0QoApqDmvNIHZnbO2VxSWBdRlJ5SP7S19VeM7rV0Umjc1mO70IQx-Un7FdoYE27YpogRdiB-KXmzvk1zZl_u_CZSC7mQ7M7XdGrpIDvhhAhxVacbpIPary3Zh9J36X1hCZgBhpX9qneOiGxzQcGBdF7XMfsFdYI6_Be2hiPoKUFMtLflsrnWmLCNkKJFhylzubFLMX9KMzn7VnUG5rI9xCfDEae0emFjPA1FqysJV3P2ehe-HanA6GpaIxGOoDGOv_IyyySHFb0UAP4i19Xm5-i5SHUZNiT8e72DX1SLZn40Z5XRgEIdTrfoHDyyOfqvT676UlOLJHiHzQ0c06u6RvPMvAAAAAH-ZrzOAA"
 
 KEYWORDS = ["مشوار", "توصيل", "تكسي", "تاكسي", "مطلوب", "محتاج", "سواق", "ابي يوصل"]
+RENDER_URL = "https://pppl-odrd.onrender.com/"
 
 user_app = Client("my_session", session_string=SESSION_STRING, api_id=API_ID, api_hash=API_HASH)
 bot_sender = Bot(token=BOT_TOKEN)
 
-# --- خادم وهمي لإرضاء منصة Render ومنع إغلاق التطبيق ---
+# 1. خادم الويب (للـ Render Health Check)
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot is active and monitoring...")
+        self.send_response(200); self.end_headers()
+        self.wfile.write(b"Bot is active")
 
 def run_health_check():
     server = HTTPServer(('0.0.0.0', 10000), HealthCheckHandler)
     server.serve_forever()
 
-# --- دالة إرسال الإشعارات للسائقين (فتح خاص العميل) ---
+# 2. إرسال الإشعارات
 async def notify_drivers(city, district, original_msg):
     conn = get_db_connection()
-    if not conn: 
-        print("❌ فشل الاتصال بقاعدة البيانات")
-        return
-    
+    if not conn: return
     try:
-        # توحيد النص للبحث بمرونة أكبر (ة/هـ)
-        search_term = district.replace('ة', 'ه').replace('أ', 'ا')
-        
+        search_term = normalize_text(district)
         with conn.cursor() as cur:
             cur.execute(
                 """SELECT user_id FROM users 
                    WHERE role = 'driver' 
-                   AND (REPLACE(REPLACE(districts, 'ة', 'ه'), 'أ', 'ا') ILIKE %s)""",
+                   AND (REPLACE(REPLACE(districts, 'ة', 'ه'), 'ال', '') ILIKE %s)""",
                 (f"%{search_term}%",)
             )
             drivers = [row[0] for row in cur.fetchall()]
-    except Exception as e:
-        print(f"❌ DB Error: {e}")
-        return
+    except: return
     finally: conn.close()
-
-    print(f"📡 محاولة إرسال لـ {len(drivers)} سائق في حي {district}...")
 
     if not drivers: return
 
@@ -67,47 +58,37 @@ async def notify_drivers(city, district, original_msg):
         f"📍 **الحي:** {district}\n"
         f"👤 **العميل:** {customer_name}\n"
         f"📝 **الطلب:**\n_{original_msg.text}_\n\n"
-        f"📥 [اضغط هنا لمراسلة العميل خاص]({customer_link})"
+        f"📥 [مراسلة العميل خاص]({customer_link})"
     )
 
-    sent_count = 0
     for d_id in drivers:
         try:
             await bot_sender.send_message(chat_id=d_id, text=alert_text, parse_mode=ParseMode.MARKDOWN)
-            sent_count += 1
-            await asyncio.sleep(0.05)
-        except Exception as e:
-            print(f"⚠️ فشل الإرسال للسائق {d_id}: {e}")
-            continue
-            
-    print(f"✅ تم إرسال التنبيه لـ {sent_count} سائق بنجاح.")
+        except: continue
 
-
-# --- رادار مراقبة المجموعات ---
-@user_app.on_message((filters.group | filters.supergroup) & ~filters.service)
+# 3. الرادار (تم إصلاح الفلتر هنا)
+@user_app.on_message(filters.group & ~filters.service)
 async def scraper_handler(client, message):
     if not message.text: return
     
-    # سطر للتشخيص - سيطبع كل رسالة تصل من أي مجموعة
-    print(f"📩 رسالة جديدة من [{message.chat.title}]: {message.text}", flush=True)
-    
-    text = normalize_text(message.text)
-    # ... باقي الكود
+    # طباعة الرسائل في السجلات للمراقبة
+    print(f"📩 من {message.chat.title}: {message.text}", flush=True)
 
+    clean_text = normalize_text(message.text)
     
-    if any(key in text for key in KEYWORDS):
+    if any(normalize_text(key) in clean_text for key in KEYWORDS):
         for city, districts in CITIES_DISTRICTS.items():
             for dist in districts:
-                if normalize_text(dist) in text:
-                    print(f"🎯 صيد جديد في حي: {dist}")
+                if normalize_text(dist) in clean_text:
+                    print(f"🎯 تم الصيد: حي {dist}", flush=True)
                     await notify_drivers(city, dist, message)
-                    break
+                    return
 
 async def start_bot():
-    print("🚀 جاري تشغيل النظام على Render...")
     threading.Thread(target=run_health_check, daemon=True).start()
     await user_app.start()
-    print("✅ الرادار يعمل ويراقب جميع المجموعات!")
+    async for dialog in user_app.get_dialogs(limit=30): pass
+    print("✅ النظام جاهز ومراقب المجموعات يعمل...", flush=True)
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
