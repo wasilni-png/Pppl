@@ -23,8 +23,7 @@ SESSION_STRING = "BAIq0QoApqDmvNIHZnbO2VxSWBdRlJ5SP7S19VeM7rV0Umjc1mO70IQx-Un7Fd
 
 # --- إعداد الذكاء الاصطناعي (Gemini) ---
 genai.configure(api_key="AIzaSyADYritHhOSTJNN1wxQiRH0Rwoo1ycL_HI")
-ai_model = genai.GenerativeModel('gemini-1.5-flash')
-
+ai_model = genai.GenerativeModel('gemini-2.0-flash') 
 # --- الكلمات المستبعدة فوراً (لمنع إعلانات السائقين قبل وصولها للذكاء الاصطناعي) ---
 DRIVER_KEYWORDS = ["متواجد", "متاح", "شغال", "جاهز", "أسعارنا", "يوجد لدينا", "سيارة نظيفة", "نقل عفش"]
 
