@@ -4,7 +4,6 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pyrogram import Client
 from telegram import Bot
 from telegram.constants import ParseMode
-# تأكد من وجود ملف config.py بنفس المجلد
 from config import normalize_text, CITIES_DISTRICTS, BOT_TOKEN, get_db_connection
 
 # إعدادات الحساب
@@ -12,32 +11,29 @@ API_ID = "36360458"
 API_HASH = "daae4628b4b4aac1f0ebfce23c4fa272"
 SESSION_STRING = "BAIq0QoApqDmvNIHZnbO2VxSWBdRlJ5SP7S19VeM7rV0Umjc1mO70IQx-Un7FdoYE27YpogRdiB-KXmzvk1zZl_u_CZSC7mQ7M7XdGrpIDvhhAhxVacbpIPary3Zh9J36X1hCZgBhpX9qneOiGxzQcGBdF7XMfsFdYI6_Be2hiPoKUFMtLflsrnWmLCNkKJFhylzubFLMX9KMzn7VnUG5rI9xCfDEae0emFjPA1FqysJV3P2ehe-HanA6GpaIxGOoDGOv_IyyySHFb0UAP4i19Xm5-i5SHUZNiT8e72DX1SLZn40Z5XRgEIdTrfoHDyyOfqvT676UlOLJHiHzQ0c06u6RvPMvAAAAAH-ZrzOAA"
 
-# كلمات البحث الأساسية
-KEYWORDS = ["مشوار", "توصيل", "ابي", "أبي", "محتاج", "مطلوب", "يوديني", "في", "من"]
-# كلمات الاستثناء (تجاهل السائقين)
-# قائمة الاستثناءات المدمجة (الشاملة لكل ما هو ليس طلب مشوار)
-EXCLUDED = [
-    "زواج", "مسيار", "خطابة", "خطابه", "بنت", "شاب", "زواجات", "تعدد", "مطلقة", "ارملة", "امرأة", # زواج
-    "للبيع", "حراج", "نظيف", "موديل", "مستعمل", "ممشى", "قير", "ماكينة", "مكينة", "بودي", "سعر", "سوم", # سيارات وأثاث
-    "تويوتا", "كامري", "هونداي", "شاشة", "جوال", "ايفون", "اثاث", "كنب", "ثلاجة", "مكيف", # تجارة
-    "ايجار", "إيجار", "للإيجار", "للايجار", "شقة", "غرفة", "عمارة", "دور", "فيلا", "استراحة", "محل", # عقارات
-    "خدمتكم", "قروبات", "انضم", "وظائف", "وظيفة", "تعقيب", "معقب", "انجاز", "إنجاز", "تسقيط", "تجديد", # خدمات
-    "تامين", "تأمين", "قرض", "تمويل", "تسديد", "كفيل", "تنسيق", "نقل_عفش", "تنظيف", "مكافحة", # خدمات عامة
-    "متواجد", "متاح", "شغال", "تحميل", "يوجد لدينا", "خدمة توصيل", "أسعارنا", "اسعارنا", "نصلكم", "جاهز", # عروض سائقين
-    "للتوصيل", "نوصل", "متوفر", "يوجد_لدينا", "اتصال", "واتساب", "تواصل", "بأفضل", "باقل", "ارخص" # إعلانات
-]
+# الكلمات المفتاحية للطلب
+KEYWORDS = ["مشوار", "توصيل", "ابي", "أبي", "محتاج", "مطلوب", "يوديني", "في", "من", "سواق", "كابتن"]
 
+# قائمة الاستثناءات المدمجة (الشاملة)
+EXCLUDED = [
+    "زواج", "مسيار", "خطابة", "خطابه", "بنت", "شاب", "زواجات", "تعدد", "مطلقة", "ارملة", "امرأة",
+    "للبيع", "حراج", "نظيف", "موديل", "مستعمل", "ممشى", "قير", "ماكينة", "مكينة", "بودي", "سعر", "سوم",
+    "تويوتا", "كامري", "هونداي", "شاشة", "جوال", "ايفون", "اثاث", "كنب", "ثلاجة", "مكيف",
+    "ايجار", "إيجار", "للإيجار", "للايجار", "شقة", "غرفة", "عمارة", "دور", "فيلا", "استراحة", "محل",
+    "خدمتكم", "قروبات", "انضم", "وظائف", "وظيفة", "تعقيب", "معقب", "انجاز", "إنجاز", "تسقيط", "تجديد",
+    "تامين", "تأمين", "قرض", "تمويل", "تسديد", "كفيل", "تنسيق", "نقل_عفش", "تنظيف", "مكافحة",
+    "متواجد", "متاح", "شغال", "تحميل", "يوجد لدينا", "خدمة توصيل", "أسعارنا", "اسعارنا", "نصلكم", "جاهز",
+    "للتوصيل", "نوصل", "متوفر", "اتصال", "واتساب", "تواصل", "بأفضل", "باقل", "ارخص"
+]
 
 user_app = Client("my_session", session_string=SESSION_STRING, api_id=API_ID, api_hash=API_HASH)
 bot_sender = Bot(token=BOT_TOKEN)
 
-# --- خادم الويب (ريندر) ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200); self.end_headers()
-        self.wfile.write(b"Radar is Active")
+        self.wfile.write(b"Radar Clean Version Active")
 
-# --- دالة إرسال التنبيهات ---
 async def notify_drivers(city, district, original_msg):
     conn = get_db_connection()
     if not conn: return
@@ -58,17 +54,16 @@ async def notify_drivers(city, district, original_msg):
         for d_id in drivers:
             try: await bot_sender.send_message(chat_id=d_id, text=alert_text, parse_mode=ParseMode.MARKDOWN)
             except: continue
-        print(f"✅ تم إرسال طلب حي {district} لـ {len(drivers)} سائق")
+        print(f"✅ تم الإرسال لحي {district}")
     finally: conn.close()
 
-# --- الرادار الذكي ---
 async def start_radar():
     await user_app.start()
     me = await user_app.get_me()
-    print(f"✅ الرادار بدأ العمل (مراقبة الأحياء والمسارات).. الحساب: {me.first_name}")
+    print(f"✅ الرادار يعمل (فلتر الطول + الاستثناءات).. الحساب: {me.first_name}")
     
     monitored_chats = []
-    async for dialog in user_app.get_dialogs(limit=40):
+    async for dialog in user_app.get_dialogs(limit=50):
         if str(dialog.chat.type) in ["ChatType.GROUP", "ChatType.SUPERGROUP", "group", "supergroup"]:
             monitored_chats.append({"id": dialog.chat.id, "title": dialog.chat.title})
 
@@ -82,15 +77,21 @@ async def start_radar():
                     
                     if msg.id > last_id[chat["id"]]:
                         last_id[chat["id"]] = msg.id
-                        if msg.from_user and msg.from_user.id == me.id: continue # تجاهل رسائلك
+                        if msg.from_user and msg.from_user.id == me.id: continue
 
                         if msg.text:
+                            # --- 1. فلتر الطول ---
+                            if len(msg.text) > 150:
+                                print(f"⏭️ تم تجاهل رسالة طويلة من {chat['title']}")
+                                continue
+
                             text_c = normalize_text(msg.text)
                             
-                            # 1. فلترة السائقين
-                            if any(normalize_text(ex) in text_c for ex in EXCLUDED): continue
+                            # --- 2. فلتر الاستثناءات المدمجة ---
+                            if any(ex in text_c for ex in EXCLUDED): 
+                                continue
 
-                            # 2. البحث عن الحي أولاً (لأنه المحرك الأساسي)
+                            # --- 3. البحث عن الحي والكلمات ---
                             found_district = None
                             found_city = None
                             for city, districts in CITIES_DISTRICTS.items():
@@ -101,10 +102,9 @@ async def start_radar():
                                         break
                                 if found_district: break
                             
-                            # 3. إذا وجدنا الحي، نتحقق من وجود رغبة في مشوار
                             if found_district:
                                 if any(normalize_text(k) in text_c for k in KEYWORDS):
-                                    print(f"🎯 صيد ثمين: {msg.text}")
+                                    print(f"🎯 صيد: {msg.text[:30]}...")
                                     await notify_drivers(found_city, found_district, msg)
                 await asyncio.sleep(1.2)
             except: continue
