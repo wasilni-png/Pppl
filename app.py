@@ -33,28 +33,38 @@ bot_sender = Bot(token=BOT_TOKEN)
 
 # --- وظيفة الذكاء الاصطناعي المتطورة ---
 async def ai_analyze_message(text):
-    # 1. تصفية أولية بالكلمات المفتاحية لتوفير وقت المعالجة
+    # 1. قائمة الكلمات الإخبارية (تُرفض فوراً لأنها ليست طلباً)
+    # تمنع رسائل مثل: "رحت"، "وصلت"، "جاني مشوار"، "كنت في"
+    STORY_KEYWORDS = ["جاني مشوار", "رحت", "وصلت", "كنت في", "خلصت مشوار", "كنت بـ"]
+    if any(word in text for word in STORY_KEYWORDS):
+        return False
+
+    # 2. استبعاد إعلانات السائقين التقليدية
     if any(word in text for word in DRIVER_KEYWORDS):
         return False
 
-    # 2. تحليل عميق باستخدام الذكاء الاصطناعي للفرق بين الزبون والسائق
+    # 3. تعديل الـ Prompt ليكون "محققاً" وليس مجرد "مصنفاً"
     prompt = f"""
-    حلل نية المرسل في الرسالة التالية بدقة: "{text}"
-    القواعد:
-    - إذا كان المرسل (زبون) يطلب خدمة (مثال: محتاج سواق، مين يوصلني، ابي مشوار، رايح لـ): رد بـ YES.
-    - إذا كان المرسل (سائق) يعرض خدمته (مثال: متواجد، أنا أوصل، توصيل مشاوير، سيارة مجهزة): رد بـ NO.
-    - إذا كان إعلان بيع، سكن، زواج، أو غير واضح: رد بـ NO.
-    رد بكلمة واحدة فقط: YES أو NO.
+    حلل الرسالة التالية: "{text}"
+    هل المرسل "زبون" يحتاج سواق "الآن"؟
+    - أجب بـ YES فقط إذا كان يطلب (مثل: ابي مشوار، مين يوصلني، في أحد يوصلني من..إلى).
+    - أجب بـ NO إذا كان المرسل (سائق) يسولف أو يخبر عن مشوار أخذه (مثل: رحت لـ، جاني مشوار، أنا وصلت).
+    - أجب بـ NO إذا كان المرسل يعرض خدمته (مثل: أنا أوصل، متواجد، متاح).
+    الرد بكلمة واحدة فقط: YES أو NO.
     """
     try:
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(None, lambda: ai_model.generate_content(prompt))
         answer = response.text.strip().upper()
+        
+        # طباعة قرار الذكاء الاصطناعي في السجلات للمراقبة
+        print(f"🧠 تحليل AI للنص [{text[:20]}...]: القرار هو {answer}")
+        
         return "YES" in answer
     except Exception as e:
-        print(f"⚠️ خطأ في تحليل AI: {e}")
-        # في حال فشل AI نعتمد على الفلترة التقليدية البسيطة كخطة بديلة
-        return "مشوار" in text or "توصيل" in text
+        print(f"⚠️ خطأ AI: {e}")
+        return False
+
 
 # --- إرسال الإشعار للسائقين ---
 async def notify_drivers(district, original_msg):
@@ -69,13 +79,13 @@ async def notify_drivers(district, original_msg):
                 (f"%{search_term}%",)
             )
             drivers = [row[0] for row in cur.fetchall()]
-        
+
         if not drivers: return
-        
+
         customer = original_msg.from_user
         customer_name = customer.first_name if customer.first_name else "عميل"
         customer_link = f"tg://user?id={customer.id}" if not customer.username else f"https://t.me/{customer.username}"
-        
+
         alert_text = (
             f"🤖 **طلب مشوار ذكي (مفحوص)**\n\n"
             f"📍 **الحي:** {district}\n"
@@ -83,7 +93,7 @@ async def notify_drivers(district, original_msg):
             f"📝 **الطلب:**\n_{original_msg.text}_\n\n"
             f"📥 [اضغط هنا لمراسلة العميل خاص]({customer_link})"
         )
-        
+
         for d_id in drivers:
             try:
                 await bot_sender.send_message(chat_id=d_id, text=alert_text, parse_mode=ParseMode.MARKDOWN)
@@ -97,51 +107,59 @@ async def notify_drivers(district, original_msg):
 async def start_radar():
     await user_app.start()
     me = await user_app.get_me()
-    print(f"🚀 الرادار يعمل الآن باسم: {me.first_name}")
-    
+    print(f"✅ تم تسجيل الدخول باسم: {me.first_name}")
+
+    # 1. تحديث قائمة المجموعات وإجبار الحساب على رؤية الرسائل الجديدة
     monitored_chats = []
-    # تقليل عدد المجموعات المفحوصة في البداية لتجنب الـ Flood
-    async for dialog in user_app.get_dialogs(limit=40):
+    print("⏳ جاري تنشيط المجموعات...")
+    async for dialog in user_app.get_dialogs(limit=50):
         if "GROUP" in str(dialog.chat.type).upper():
             monitored_chats.append({"id": dialog.chat.id, "title": dialog.chat.title})
     
     print(f"📡 مراقبة نشطة لـ ({len(monitored_chats)}) مجموعة.")
 
+    # 2. تخزين آخر ID موجود حالياً لتجنب سحب الرسائل القديمة (البدء من الآن)
     last_id = {}
+    for chat in monitored_chats:
+        try:
+            async for msg in user_app.get_chat_history(chat["id"], limit=1):
+                last_id[chat["id"]] = msg.id
+        except:
+            last_id[chat["id"]] = 0
+
+    print("🚀 الرادار بدأ الصيد الفعلي للرسائل الجديدة...")
+
     while True:
         for chat in monitored_chats:
             try:
-                # سحب رسالة واحدة فقط وبسرعة
+                # فحص آخر رسالة وصلت "الآن"
                 async for msg in user_app.get_chat_history(chat["id"], limit=1):
-                    if chat["id"] not in last_id:
-                        last_id[chat["id"]] = msg.id; continue
-                    
-                    if msg.id > last_id[chat["id"]]:
+                    if msg.id > last_id.get(chat["id"], 0):
                         last_id[chat["id"]] = msg.id
                         
-                        # تصفية الرسائل القصيرة جداً وتجاهل رسائل الحساب نفسه
-                        if not msg.text or len(msg.text) < 8: continue
-                        if msg.from_user and msg.from_user.id == me.id: continue
+                        # تجاهل رسائل البوت نفسه والرسائل الفارغة
+                        if (msg.from_user and msg.from_user.id == me.id) or not msg.text:
+                            continue
 
-                        # استشارة الذكاء الاصطناعي
+                        print(f"📩 رسالة جديدة مكتشفة في [{chat['title']}]")
+                        
+                        # تحليل الذكاء الاصطناعي
                         if await ai_analyze_message(msg.text):
+                            print(f"🧠 AI: تأكيد طلب حقيقي!")
                             text_c = normalize_text(msg.text)
                             for city, districts in CITIES_DISTRICTS.items():
                                 for d in districts:
                                     if normalize_text(d) in text_c:
+                                        print(f"🎯 تطابق مع حي: {d}")
                                         await notify_drivers(d, msg)
                                         break
-                # تأخير بسيط جداً بين كل مجموعة ومجموعة لتجنب الـ Flood
-                await asyncio.sleep(0.3) 
+                
+                await asyncio.sleep(0.5) # تأخير بسيط لتجنب الـ Flood
             except Exception as e:
-                if "420" in str(e): # إذا حدث Flood Wait
-                    print(f"⚠️ تليجرام طلب الانتظار، سأرتاح قليلاً...")
-                    await asyncio.sleep(20) # توقف لمدة 20 ثانية
+                if "420" in str(e):
+                    await asyncio.sleep(15)
                 continue
-        
-        # فترة راحة بعد فحص كل المجموعات
-        await asyncio.sleep(5)
-
+        await asyncio.sleep(2)
 
 # --- خادم الويب (Health Check لـ Render) ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
