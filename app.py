@@ -30,6 +30,19 @@ DRIVER_KEYWORDS = ["متواجد", "متاح", "شغال", "جاهز", "أسعا
 
 user_app = Client("my_session", session_string=SESSION_STRING, api_id=API_ID, api_hash=API_HASH)
 bot_sender = Bot(token=BOT_TOKEN)
+# في حلقة استقبال الرسائل (داخل start_radar)
+async for msg in user_app.get_chat_history(chat["id"], limit=1):
+    if msg.id > last_id.get(chat["id"], 0):
+        last_id[chat["id"]] = msg.id
+
+        # 🛑 الفلترة المنطقية: تجاهل أي شيء ليس نصاً
+        if not msg.text or msg.text.strip() == "":
+            print(f"🚫 رسالة غير نصية (وسائط أو نظام) في {chat['title']} - تم التجاهل")
+            continue
+
+        # الآن نرسل النص للـ AI بعد التأكد من وجوده
+        if await ai_analyze_message(msg.text):
+             # كود البحث عن الحي وإرسال الإشعار
 
 # --- وظيفة الذكاء الاصطناعي المتطورة ---
 async def ai_analyze_message(text):
@@ -58,40 +71,62 @@ async def ai_analyze_message(text):
 
 # --- إرسال الإشعار للسائقين ---
 async def notify_drivers(district, original_msg):
+    # 1. التحقق من وجود نص في الرسالة قبل البدء (الوقاية من خطأ Empty Message)
+    content = original_msg.text or original_msg.caption
+    if not content:
+        print(f"⚠️ تجاهل الطلب في {district} لأن الرسالة لا تحتوي على نص.")
+        return
+
     conn = get_db_connection()
     if not conn: return
+    
     try:
         search_term = normalize_text(district)
         with conn.cursor() as cur:
-            # استعلام ذكي يتجاهل "ال" التعريف ويبحث في الأحياء
             cur.execute(
                 "SELECT user_id FROM users WHERE role = 'driver' AND (REPLACE(REPLACE(districts, 'ة', 'ه'), 'ال', '') ILIKE %s)",
                 (f"%{search_term}%",)
             )
             drivers = [row[0] for row in cur.fetchall()]
 
-        if not drivers: return
+        if not drivers: 
+            print(f"ℹ️ لا يوجد سواقين مسجلين في حي {district}")
+            return
 
         customer = original_msg.from_user
         customer_name = customer.first_name if customer.first_name else "عميل"
+        
+        # إنشاء رابط العميل بشكل آمن
         customer_link = f"tg://user?id={customer.id}" if not customer.username else f"https://t.me/{customer.username}"
+
+        # 2. تنظيف النص المستلم من الرموز التي تفسد Markdown
+        safe_text = content.replace("_", "-").replace("*", "").replace("`", "")
 
         alert_text = (
             f"🤖 **طلب مشوار ذكي (مفحوص)**\n\n"
             f"📍 **الحي:** {district}\n"
             f"👤 **العميل:** {customer_name}\n"
-            f"📝 **الطلب:**\n_{original_msg.text}_\n\n"
+            f"📝 **الطلب:**\n_{safe_text}_\n\n"
             f"📥 [اضغط هنا لمراسلة العميل خاص]({customer_link})"
         )
 
+        sent_count = 0
         for d_id in drivers:
             try:
+                # استخدمنا parse_mode=ParseMode.MARKDOWN بحذر بعد تنظيف النص
                 await bot_sender.send_message(chat_id=d_id, text=alert_text, parse_mode=ParseMode.MARKDOWN)
-            except:
+                sent_count += 1
+            except Exception as e:
+                # لتجنب توقف الحلقة في حال حظر أحد السائقين للبوت
                 continue
-        print(f"✅ تم تحويل طلب في {district} لـ {len(drivers)} سائق.")
+                
+        print(f"✅ تم تحويل طلب في {district} لـ {sent_count} سائق.")
+        
+    except Exception as e:
+        print(f"❌ خطأ في دالة notify_drivers: {e}")
     finally:
         conn.close()
+
 
 # --- المحرك الرئيسي للرادار ---
 async def start_radar():
@@ -160,4 +195,4 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     threading.Thread(target=lambda: HTTPServer(('0.0.0.0', port), HealthCheckHandler).serve_forever(), daemon=True).start()
-    asyncio.run(start_radar())
+    asyncio.run(start_radar()) 
