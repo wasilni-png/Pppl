@@ -56,6 +56,7 @@ async def ai_analyze_message(text):
         return "مشوار" in text or "توصيل" in text
 
 # --- إرسال الإشعار للسائقين ---
+# --- إرسال الإشعار للسائقين ---
 async def notify_drivers(district, original_msg):
     content = original_msg.text or original_msg.caption
     if not content: return
@@ -66,7 +67,7 @@ async def notify_drivers(district, original_msg):
     try:
         search_term = normalize_text(district)
         with conn.cursor() as cur:
-            # 🟢 التعديل: جلب السائقين المشتركين، غير المحظورين، والنشطين فقط
+            # جلب السائقين المشتركين، غير المحظورين، والنشطين فقط
             cur.execute(
                 """
                 SELECT user_id FROM users 
@@ -82,33 +83,54 @@ async def notify_drivers(district, original_msg):
         if not drivers: 
             return
 
+        # 1. استخراج بيانات العميل وتجهيز الروابط
         customer = original_msg.from_user
         customer_name = customer.first_name if customer.first_name else "عميل"
-        # تأمين الرابط
         customer_link = f"tg://user?id={customer.id}" if not customer.username else f"https://t.me/{customer.username}"
+        
+        # تجهيز رابط الرسالة الأصلية في الجروب
+        chat_id_str = str(original_msg.chat.id).replace("-100", "")
+        msg_url = f"https://t.me/c/{chat_id_str}/{original_msg.message_id}"
 
-        safe_text = content.replace("_", "-").replace("*", "").replace("`", "")
-
+        # 2. تجهيز النص بتنسيق HTML لضمان استقرار الأزرار
+        safe_text = content.replace("<", "&lt;").replace(">", "&gt;")
         alert_text = (
-            f"🤖 **طلب مشوار ذكي (للمشتركين)**\n\n"
-            f"📍 **الحي:** {district}\n"
-            f"👤 **العميل:** {customer_name}\n"
-            f"📝 **الطلب:**\n_{safe_text}_\n\n"
-            f"📥 [اضغط هنا لمراسلة العميل خاص]({customer_link})"
+            f"🤖 <b>طلب مشوار ذكي (للمشتركين)</b>\n\n"
+            f"📍 <b>الحي:</b> {district}\n"
+            f"👤 <b>العميل:</b> {customer_name}\n"
+            f"📝 <b>الطلب:</b>\n<i>{safe_text}</i>"
         )
 
-        # إرسال الرسائل
+        # 3. إنشاء الأزرار الشفافة
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        keyboard = [
+            [InlineKeyboardButton("🔗 عرض نص الطلب (بالجروب)", url=msg_url)],
+            [InlineKeyboardButton("💬 مراسلة العميل (خاص)", url=customer_link)]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # 4. إرسال الرسائل لجميع السائقين المفلترين
+        sent_count = 0
         for d_id in drivers:
             try:
-                await bot_sender.send_message(chat_id=d_id, text=alert_text, parse_mode=ParseMode.MARKDOWN)
-            except: 
+                await bot_sender.send_message(
+                    chat_id=d_id,
+                    text=alert_text,
+                    reply_markup=reply_markup,
+                    parse_mode="HTML"
+                )
+                sent_count += 1
+            except Exception as e:
+                print(f"⚠️ فشل الإرسال للسائق {d_id}: {e}")
                 continue
                 
-        print(f"✅ تم تحويل طلب في {district} لـ {len(drivers)} سائق مشترك.")
+        print(f"✅ تم تحويل طلب في {district} لـ {sent_count} سائق مشترك.")
+
     except Exception as e:
-        print(f"❌ خطأ إرسال في notify_drivers: {e}")
+        print(f"❌ خطأ في notify_drivers: {e}")
     finally:
-        # ⚠️ تغيير جوهري: إعادة الاتصال للمجمع بدلاً من إغلاقه نهائياً
+        # تحرير الاتصال للمجمع (Pool)
+        from config import release_db_connection
         release_db_connection(conn)
 
 # --- المحرك الرئيسي للرادار ---
