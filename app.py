@@ -66,39 +66,50 @@ async def notify_drivers(district, original_msg):
     try:
         search_term = normalize_text(district)
         with conn.cursor() as cur:
+            # 🟢 التعديل: جلب السائقين المشتركين، غير المحظورين، والنشطين فقط
             cur.execute(
-                "SELECT user_id FROM users WHERE role = 'driver' AND (REPLACE(REPLACE(districts, 'ة', 'ه'), 'ال', '') ILIKE %s)",
+                """
+                SELECT user_id FROM users 
+                WHERE role = 'driver' 
+                AND is_blocked = FALSE 
+                AND subscription_expiry > NOW()
+                AND (REPLACE(REPLACE(districts, 'ة', 'ه'), 'ال', '') ILIKE %s)
+                """,
                 (f"%{search_term}%",)
             )
             drivers = [row[0] for row in cur.fetchall()]
 
-        if not drivers: return
+        if not drivers: 
+            return
 
         customer = original_msg.from_user
         customer_name = customer.first_name if customer.first_name else "عميل"
+        # تأمين الرابط
         customer_link = f"tg://user?id={customer.id}" if not customer.username else f"https://t.me/{customer.username}"
 
-        # تنظيف النص لمنع أخطاء Markdown
         safe_text = content.replace("_", "-").replace("*", "").replace("`", "")
 
         alert_text = (
-            f"🤖 **طلب مشوار ذكي (مفحوص)**\n\n"
+            f"🤖 **طلب مشوار ذكي (للمشتركين)**\n\n"
             f"📍 **الحي:** {district}\n"
             f"👤 **العميل:** {customer_name}\n"
             f"📝 **الطلب:**\n_{safe_text}_\n\n"
             f"📥 [اضغط هنا لمراسلة العميل خاص]({customer_link})"
         )
 
+        # إرسال الرسائل
         for d_id in drivers:
             try:
                 await bot_sender.send_message(chat_id=d_id, text=alert_text, parse_mode=ParseMode.MARKDOWN)
-            except: continue
+            except: 
+                continue
                 
-        print(f"✅ تم تحويل طلب في {district} لـ {len(drivers)} سائق.")
+        print(f"✅ تم تحويل طلب في {district} لـ {len(drivers)} سائق مشترك.")
     except Exception as e:
-        print(f"❌ خطأ إرسال: {e}")
+        print(f"❌ خطأ إرسال في notify_drivers: {e}")
     finally:
-        conn.close()
+        # ⚠️ تغيير جوهري: إعادة الاتصال للمجمع بدلاً من إغلاقه نهائياً
+        release_db_connection(conn)
 
 # --- المحرك الرئيسي للرادار ---
 async def start_radar():
