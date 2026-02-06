@@ -67,7 +67,6 @@ async def notify_drivers(district, original_msg):
     try:
         search_term = normalize_text(district)
         with conn.cursor() as cur:
-            # جلب السائقين المشتركين، غير المحظورين، والنشطين فقط
             cur.execute(
                 """
                 SELECT user_id FROM users 
@@ -83,16 +82,15 @@ async def notify_drivers(district, original_msg):
         if not drivers: 
             return
 
-        # 1. استخراج بيانات العميل وتجهيز الروابط
         customer = original_msg.from_user
         customer_name = customer.first_name if customer.first_name else "عميل"
         customer_link = f"tg://user?id={customer.id}" if not customer.username else f"https://t.me/{customer.username}"
         
-        # تجهيز رابط الرسالة الأصلية في الجروب
+        # 🛠️ الإصلاح هنا: استخدام .id بدلاً من .message_id لأن الرسالة قادمة من Pyrogram
+        msg_id = getattr(original_msg, "id", getattr(original_msg, "message_id", None))
         chat_id_str = str(original_msg.chat.id).replace("-100", "")
-        msg_url = f"https://t.me/c/{chat_id_str}/{original_msg.message_id}"
+        msg_url = f"https://t.me/c/{chat_id_str}/{msg_id}"
 
-        # 2. تجهيز النص بتنسيق HTML لضمان استقرار الأزرار
         safe_text = content.replace("<", "&lt;").replace(">", "&gt;")
         alert_text = (
             f"🤖 <b>طلب مشوار ذكي (للمشتركين)</b>\n\n"
@@ -101,7 +99,6 @@ async def notify_drivers(district, original_msg):
             f"📝 <b>الطلب:</b>\n<i>{safe_text}</i>"
         )
 
-        # 3. إنشاء الأزرار الشفافة
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
         keyboard = [
             [InlineKeyboardButton("🔗 عرض نص الطلب (بالجروب)", url=msg_url)],
@@ -109,7 +106,6 @@ async def notify_drivers(district, original_msg):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # 4. إرسال الرسائل لجميع السائقين المفلترين
         sent_count = 0
         for d_id in drivers:
             try:
@@ -121,7 +117,6 @@ async def notify_drivers(district, original_msg):
                 )
                 sent_count += 1
             except Exception as e:
-                print(f"⚠️ فشل الإرسال للسائق {d_id}: {e}")
                 continue
                 
         print(f"✅ تم تحويل طلب في {district} لـ {sent_count} سائق مشترك.")
@@ -129,9 +124,9 @@ async def notify_drivers(district, original_msg):
     except Exception as e:
         print(f"❌ خطأ في notify_drivers: {e}")
     finally:
-        # تحرير الاتصال للمجمع (Pool)
         from config import release_db_connection
         release_db_connection(conn)
+
 
 # --- المحرك الرئيسي للرادار ---
 async def start_radar():
