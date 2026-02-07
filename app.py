@@ -69,16 +69,22 @@ async def ai_analyze_message(text):
     رد بـ NO إذا كان عرض خدمة من سائق أو كلاماً غير مفيد.
     الرد بكلمة واحدة: YES أو NO.
     """
+    async def ai_analyze_message(text):
+    # ... الكود السابق (الفحص الأولي و clean_text) ...
     try:
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, lambda: ai_model.generate_content(prompt))
-        answer = response.text.strip().upper()
-        if "YES" in answer: return True
+        # التعديل: استخدام المسمى المستقر وزيادة الأمان
+        model = genai.GenerativeModel('gemini-1.5-flash') 
+        
+        # استخدام asyncio.to_thread لمنع تعليق البرنامج
+        response = await asyncio.to_thread(
+            model.generate_content,
+            f"Is this a customer asking for a taxi/delivery? Answer YES or NO only: {text}"
+        )
+        return "YES" in response.text.strip().upper()
     except Exception as e:
         print(f"⚠️ خطأ AI: {e}")
-    
-    # خطة البديل: الاعتماد على الكلمات المفتاحية في حال تعطل AI
-    return any(word in clean_text for word in SAFE_KEYWORDS)
+        # البديل التلقائي بالكلمات المفتاحية
+        return any(word in clean_text for word in SAFE_KEYWORDS)
 
 # --- دالة بث الطلب لجميع السائقين ---
 
@@ -233,8 +239,19 @@ async def start_radar():
 # --- خادم الويب (Health Check) ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200); self.end_headers()
-        self.wfile.write(b"Radar Active")
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"AI Radar is Live and Running")
+
+    def do_HEAD(self):
+        # Render يرسل هذا الطلب للتأكد من أن السيرفر يعمل
+        self.send_response(200)
+        self.end_headers()
+        
+    def log_message(self, format, *args):
+        # كتم السجلات المزعجة في لوحة تحكم Render
+        return
 
 def run_health_server():
     port = int(os.environ.get("PORT", 10000))
