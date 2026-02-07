@@ -69,7 +69,7 @@ async def ai_analyze_message(text):
     رد بـ NO إذا كان عرض خدمة من سائق أو كلاماً غير مفيد.
     الرد بكلمة واحدة: YES أو NO.
     """
-    async def ai_analyze_message(text):
+    
     # ... الكود السابق (الفحص الأولي و clean_text) ...
     try:
         # التعديل: استخدام المسمى المستقر وزيادة الأمان
