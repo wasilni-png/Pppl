@@ -162,28 +162,47 @@ async def notify_all_drivers(detected_district, original_msg):
         release_db_connection(conn)
 
 # --- المحرك الرئيسي للرادار ---
+
+
 async def start_radar():
     await user_app.start()
     print("📡 الرادار يعمل الآن ويبحث عن طلبات لجميع السائقين...")
 
     last_id = {}
+    
+    # 1. تهيئة أولية لجلب آخر ID لكل مجموعة لمنع سحب الرسائل القديمة عند التشغيل
+    try:
+        async for dialog in user_app.get_dialogs(limit=40):
+            if "GROUP" in str(dialog.chat.type).upper():
+                async for msg in user_app.get_chat_history(dialog.chat.id, limit=1):
+                    last_id[dialog.chat.id] = msg.id
+        print("✅ تم تحديد نقطة البداية للمجموعات.")
+    except Exception as e:
+        print(f"⚠️ تنبيه أثناء التهيئة: {e}")
+
     while True:
         try:
+            # 2. زيادة وقت الانتظار بين الدورات لتقليل الضغط الإجمالي
+            await asyncio.sleep(10) 
+            
             async for dialog in user_app.get_dialogs(limit=40):
-                if "GROUP" not in str(dialog.chat.type).upper(): continue
+                if "GROUP" not in str(dialog.chat.type).upper(): 
+                    continue
                 
                 chat_id = dialog.chat.id
                 try:
+                    # 3. فحص الرسالة الأخيرة فقط
                     async for msg in user_app.get_chat_history(chat_id, limit=1):
                         if msg.id > last_id.get(chat_id, 0):
                             last_id[chat_id] = msg.id
                             
                             text = msg.text or msg.caption
-                            if not text or (msg.from_user and msg.from_user.is_self): continue
+                            # تجاهل الرسائل الفارغة أو رسائل البوت نفسه
+                            if not text or (msg.from_user and msg.from_user.is_self): 
+                                continue
 
-                            # التحليل والإرسال
+                            # 4. إرسال للتحليل (تم إصلاح الموديل في الدالة المرافقة)
                             if await ai_analyze_message(text):
-                                # محاولة معرفة الحي (للمعلومات فقط)
                                 found_d = "غير محدد"
                                 text_c = normalize_text(text)
                                 for city, districts in CITIES_DISTRICTS.items():
@@ -195,12 +214,21 @@ async def start_radar():
                                 print(f"🎯 طلب حقيقي في [{dialog.chat.title}]")
                                 await notify_all_drivers(found_d, msg)
                     
-                except Exception: continue
+                    # 💡 أهم إضافة: تأخير بسيط (Throttle) بين كل مجموعة وأخرى لمنع الـ Flood
+                    await asyncio.sleep(0.5)
+
+                except Exception as e:
+                    if "420" in str(e): # استلام تنبيه FloodWait
+                        wait_seconds = int(''.join(filter(str.isdigit, str(e))) or 20)
+                        print(f"😴 تليجرام طلب الهدوء.. سأنام لـ {wait_seconds} ثانية")
+                        await asyncio.sleep(wait_seconds)
+                    continue
+
         except Exception as e:
-            print(f"⚠️ خطأ في الدورة: {e}")
-            await asyncio.sleep(5)
-            
-        await asyncio.sleep(2)
+            print(f"⚠️ خطأ في الدورة الرئيسية: {e}")
+            await asyncio.sleep(15) # انتظار أطول عند حدوث خطأ عام
+
+
 
 # --- خادم الويب (Health Check) ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
