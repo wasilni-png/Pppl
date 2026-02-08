@@ -58,7 +58,7 @@ model = genai.GenerativeModel('gemini-1.5-flash')
 
 async def ai_analyze_message(text):
     if not text or len(text.strip()) < 5: return False
-    
+
     # 1. الفحص الأولي السريع (توفير الكوتا)
     clean_text = normalize_text(text)
     if any(word in clean_text for word in DRIVER_KEYWORDS):
@@ -90,7 +90,7 @@ async def ai_analyze_message(text):
             ),
             timeout=4.0 
         )
-        
+
         # تنظيف الرد للتأكد من خلوه من المسافات أو النقاط
         result = response.text.strip().upper().replace(".", "")
         return "YES" in result
@@ -98,7 +98,7 @@ async def ai_analyze_message(text):
     except asyncio.TimeoutError:
         print(f"⚠️ تجاوز AI المهلة الزمنية: نعود للنظام اليدوي.")
         return any(word in clean_text for word in SAFE_KEYWORDS)
-        
+
     except Exception as e:
         print(f"⚠️ خطأ فني في AI: {e}")
         # البديل التلقائي بالكلمات المفتاحية
@@ -116,7 +116,6 @@ async def notify_all_drivers(detected_district, original_msg):
 
     try:
         with conn.cursor() as cur:
-            # دمج ميزة الفلترة بالحي مع جلب البيانات
             query = """
                 SELECT user_id, subscription_expiry 
                 FROM users 
@@ -130,28 +129,30 @@ async def notify_all_drivers(detected_district, original_msg):
         if not drivers_data: return
 
         customer = original_msg.from_user
-        customer_name = (customer.first_name or "عميل") if customer else "عميل"
-        
-        # رابط الراكب المباشر للمشتركين
-        customer_link = f"tg://user?id={customer.id}" if customer and not customer.username else f"https://t.me/{customer.username}" if customer else "#"
-        
-        # رابط الرسالة في الجروب للمشتركين
-        msg_id = getattr(original_msg, "id", getattr(original_msg, "message_id", 0))
+        # ✅ إصلاح رابط الراكب: التعامل مع عدم وجود يوزر نيم بشكل آمن
+        if customer:
+            if customer.username:
+                customer_link = f"https://t.me/{customer.username}"
+            else:
+                customer_link = f"tg://user?id={customer.id}"
+        else:
+            customer_link = "#"
+
+        # تجهيز روابط الرسالة
+        msg_id = getattr(original_msg, "id", 0)
         chat_id_str = str(original_msg.chat.id).replace("-100", "")
         msg_url = f"https://t.me/c/{chat_id_str}/{msg_id}"
-
-        # رابط الإدارة لغير المشتركين
         admin_contact_link = "https://t.me/x3FreTx"
 
         now = datetime.now()
 
         for d_id, expiry in drivers_data:
             try:
-                # فحص هل السائق مشترك (تاريخ الانتهاء أكبر من الوقت الحالي)
+                # التحقق من حالة الاشتراك
                 is_active = expiry and expiry > now
-                
+
                 if is_active:
-                    # ✅ رسالة المشترك: تظهر فيها الروابط المباشرة
+                    # ✅ رسالة المشترك
                     alert_text = (
                         f"🌟 <b>طلب مشوار جديد (خاص بالمشتركين)</b>\n\n"
                         f"📍 <b>المنطقة:</b> {detected_district}\n"
@@ -162,16 +163,15 @@ async def notify_all_drivers(detected_district, original_msg):
                         [InlineKeyboardButton("💬 مراسلة الراكب مباشرة", url=customer_link)]
                     ])
                 else:
-                    # ❌ رسالة غير المشترك: تنبيه مع رابط الإدارة
+                    # ❌ رسالة غير المشترك
                     alert_text = (
                         f"🆕 <b>طلب مشوار جديد مكتشف</b>\n\n"
                         f"📍 <b>المنطقة:</b> {detected_district}\n"
                         f"📝 <b>نص الطلب:</b>\n<i>{content}</i>\n\n"
-                        f"⚠️ <b>هذا الطلب متاح للمشتركين فقط.</b>\n"
-                        f"تواصل مع الإدارة لتفعيل حسابك والوصول للروابط."
+                        f"⚠️ <b>هذا الطلب متاح للمشتركين فقط.</b>"
                     )
                     keyboard = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("💳 تواصل معنا للاشتراك في البوت", url=admin_contact_link)]
+                        [InlineKeyboardButton("💳 تفعيل الحساب", url=admin_contact_link)]
                     ])
 
                 await bot_sender.send_message(
@@ -180,14 +180,18 @@ async def notify_all_drivers(detected_district, original_msg):
                     reply_markup=keyboard,
                     parse_mode="HTML"
                 )
-                await asyncio.sleep(0.05) # حماية من الحظر عند الإرسال الجماعي
-            except: continue
+                await asyncio.sleep(0.05) 
 
-        print(f"🤖 ذكاء اصطناعي: تم تأكيد الطلب. جاري البث لـ {len(drivers_data)} سائق في {detected_district}")
+            except Exception as send_error:
+                # طباعة الخطأ لمعرفة لماذا لا تصل الرسالة للمشتركين
+                print(f"⚠️ خطأ أثناء الإرسال للسائق {d_id}: {send_error}")
+                continue
+
+    except Exception as e:
+        print(f"❌ خطأ عام في البث: {e}")
     finally:
         from config import release_db_connection
         release_db_connection(conn)
-
 
 # --- المحرك الرئيسي للرادار ---
 
@@ -197,7 +201,7 @@ async def start_radar():
     print("📡 الرادار يعمل الآن ويبحث عن طلبات لجميع السائقين...")
 
     last_id = {}
-    
+
     # 1. تهيئة أولية لجلب آخر ID لكل مجموعة لمنع سحب الرسائل القديمة عند التشغيل
     try:
         async for dialog in user_app.get_dialogs(limit=40):
@@ -212,18 +216,18 @@ async def start_radar():
         try:
             # 2. زيادة وقت الانتظار بين الدورات لتقليل الضغط الإجمالي
             await asyncio.sleep(10) 
-            
+
             async for dialog in user_app.get_dialogs(limit=40):
                 if "GROUP" not in str(dialog.chat.type).upper(): 
                     continue
-                
+
                 chat_id = dialog.chat.id
                 try:
                     # 3. فحص الرسالة الأخيرة فقط
                     async for msg in user_app.get_chat_history(chat_id, limit=1):
                         if msg.id > last_id.get(chat_id, 0):
                             last_id[chat_id] = msg.id
-                            
+
                             text = msg.text or msg.caption
                             # تجاهل الرسائل الفارغة أو رسائل البوت نفسه
                             if not text or (msg.from_user and msg.from_user.is_self): 
@@ -238,10 +242,10 @@ async def start_radar():
                                         if normalize_text(d) in text_c:
                                             found_d = d
                                             break
-                                
+
                                 print(f"🎯 طلب حقيقي في [{dialog.chat.title}]")
                                 await notify_all_drivers(found_d, msg)
-                    
+
                     # 💡 أهم إضافة: تأخير بسيط (Throttle) بين كل مجموعة وأخرى لمنع الـ Flood
                     await asyncio.sleep(0.5)
 
@@ -270,7 +274,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         # Render يرسل هذا الطلب للتأكد من أن السيرفر يعمل
         self.send_response(200)
         self.end_headers()
-        
+
     def log_message(self, format, *args):
         # كتم السجلات المزعجة في لوحة تحكم Render
         return
