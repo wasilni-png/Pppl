@@ -108,114 +108,80 @@ async def ai_analyze_message(text):
 
 
 
+from datetime import datetime, timezone
+
 async def notify_all_drivers(detected_district, original_msg):
-    # استخراج نص الطلب
     content = original_msg.text or original_msg.caption
-    if not content:
-        return
+    if not content: return
 
     conn = get_db_connection()
-    if not conn:
-        print("❌ خطأ: تعذر الاتصال بقاعدة البيانات")
-        return
+    if not conn: return
 
     try:
         with conn.cursor() as cur:
-            # جلب السائقين الذين يغطون الحي المكتشف وغير المحظورين
             query = """
                 SELECT user_id, subscription_expiry 
                 FROM users 
-                WHERE role = 'driver' 
-                AND is_blocked = FALSE 
+                WHERE role = 'driver' AND is_blocked = FALSE 
                 AND (districts ILIKE %s OR districts = 'الكل' OR districts IS NULL)
             """
             cur.execute(query, (f"%{detected_district}%",))
             drivers_data = cur.fetchall()
 
-        if not drivers_data:
-            print(f"ℹ️ لا يوجد سواقين مسجلين لحي {detected_district}")
-            return
-
-        # بيانات العميل والرسالة
-        customer = original_msg.from_user
-        
-        # ✅ بناء رابط الراكب بشكل آمن (يتعامل مع وجود أو عدم وجود يوزرنيم)
-        if customer:
-            if customer.username:
-                customer_link = f"https://t.me/{customer.username}"
-            else:
-                customer_link = f"tg://user?id={customer.id}"
-        else:
-            customer_link = "#"
-
-        # بناء رابط الرسالة في الجروب
-        msg_id = getattr(original_msg, "id", getattr(original_msg, "message_id", 0))
-        chat_id_str = str(original_msg.chat.id).replace("-100", "")
-        msg_url = f"https://t.me/c/{chat_id_str}/{msg_id}"
-
-        # رابط الإدارة
-        admin_contact_link = "https://t.me/x3FreTx"
-
-        # ✅ الحصول على الوقت الحالي بتوقيت UTC لمطابقة Supabase
+        # 1. الحصول على الوقت الحالي بتوقيت UTC لمطابقة قاعدة البيانات
         now_utc = datetime.now(timezone.utc)
 
-        count_sent = 0
         for d_id, expiry in drivers_data:
             try:
-                # 🛡️ التحقق من حالة الاشتراك (صلاحية التاريخ)
+                # 2. تصحيح المقارنة (أهم خطوة)
                 is_active = False
                 if expiry:
-                    # إذا كان التاريخ قادم من DB بدون منطقة زمنية، نلحق به UTC
+                    # التأكد أن expiry لديه معلومات المنطقة الزمنية UTC
                     if expiry.tzinfo is None:
                         expiry = expiry.replace(tzinfo=timezone.utc)
-                    
-                    # مقارنة التاريخين (كلاهما الآن UTC)
                     is_active = expiry > now_utc
 
                 if is_active:
-                    # ✅ رسالة المشترك: تظهر فيها الروابط المباشرة
+                    # ✅ للمشتركين: بناء الروابط بحذر شديد
+                    customer = original_msg.from_user
+                    c_link = f"tg://user?id={customer.id}" if customer else "#"
+                    if customer and customer.username:
+                        c_link = f"https://t.me/{customer.username}"
+
+                    msg_id = getattr(original_msg, "id", getattr(original_msg, "message_id", 0))
+                    c_id_str = str(original_msg.chat.id).replace("-100", "")
+                    m_url = f"https://t.me/c/{c_id_str}/{msg_id}"
+
                     alert_text = (
-                        f"🌟 <b>طلب مشوار جديد (خاص بالمشتركين)</b>\n\n"
+                        f"🌟 <b>طلب مشوار جديد للمشتركين</b>\n\n"
                         f"📍 <b>المنطقة:</b> {detected_district}\n"
                         f"📝 <b>الطلب:</b>\n<i>{content}</i>"
                     )
                     keyboard = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("🔗 عرض الطلب في الجروب", url=msg_url)],
-                        [InlineKeyboardButton("💬 مراسلة الراكب مباشرة", url=customer_link)]
+                        [InlineKeyboardButton("🔗 عرض الطلب", url=m_url)],
+                        [InlineKeyboardButton("💬 مراسلة العميل", url=c_link)]
                     ])
                 else:
-                    # ❌ رسالة غير المشترك: تنبيه مع رابط الإدارة
-                    alert_text = (
-                        f"🆕 <b>طلب مشوار جديد مكتشف</b>\n\n"
-                        f"📍 <b>المنطقة:</b> {detected_district}\n"
-                        f"📝 <b>نص الطلب:</b>\n<i>{content}</i>\n\n"
-                        f"⚠️ <b>هذا الطلب متاح للمشتركين فقط.</b>\n"
-                        f"تواصل مع الإدارة لتفعيل حسابك والوصول للروابط."
-                    )
+                    # ❌ لغير المشتركين
+                    alert_text = f"🆕 <b>طلب مكتشف في {detected_district}</b>\n\n⚠️ متاح للمشتركين فقط."
                     keyboard = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("💳 تواصل معنا للاشتراك في البوت", url=admin_contact_link)]
+                        [InlineKeyboardButton("💳 اشترك الآن", url="https://t.me/x3FreTx")]
                     ])
 
-                # إرسال الرسالة للسائق
                 await bot_sender.send_message(
                     chat_id=d_id,
                     text=alert_text,
                     reply_markup=keyboard,
                     parse_mode="HTML"
                 )
-                count_sent += 1
-                
-                # تأخير بسيط جداً لتجنب حظر التليجرام عند الإرسال الجماعي
-                await asyncio.sleep(0.05) 
+                await asyncio.sleep(0.05)
 
             except Exception as e:
-                print(f"⚠️ فشل الإرسال للسائق {d_id}: {e}")
+                print(f"⚠️ خطأ إرسال للسائق {d_id}: {e}")
                 continue
 
-        print(f"🤖 جاري البث لـ {len(drivers_data)} سائق في {detected_district} (تم إرسال {count_sent})")
-        
     except Exception as e:
-        print(f"❌ خطأ عام في دالة notify_all_drivers: {e}")
+        print(f"❌ خطأ عام: {e}")
     finally:
         from config import release_db_connection
         release_db_connection(conn)
