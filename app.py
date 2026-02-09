@@ -123,16 +123,31 @@ async def analyze_message_hybrid(text):
     # المرحلة 3: Gemini Flash للفصل النهائي
     # هذا الموديل سريع جداً ويفهم السياق
     prompt = f"""
-    You are a moderator for a taxi ride request group in Madinah.
-    Task: Identify if the following text is a CUSTOMER asking for a ride.
+    Context: You are a highly intelligent AI moderator for a Telegram group in Madinah, Saudi Arabia. 
+    The group connects customers with private drivers and delivery captains.
     
-    Rules:
-    - Reply 'YES' ONLY if it is a clear ride request (e.g., "I need a driver", "Who can take me to...").
-    - Reply 'NO' if it is a driver offering service.
-    - Reply 'NO' if it is a question about prices generally, health, or other topics.
+    Task: Analyze the message and determine if it is a CUSTOMER REQUEST for a service.
     
-    Text: "{text}"
-    
+    [YES] CRITERIA (The message is a CUSTOMER REQUEST):
+    1. Ride Requests: Person needs a driver (e.g., "أبي سواق", "كابتن متاح؟", "توصيل للمطار").
+    2. Route-Only Messages: Short text mentioning locations (e.g., "من الحزام إلى الحمراء", "من قطار الحرمين للعزيزية").
+    3. Delivery Requests: Needs something moved (e.g., "توصيل طلبية", "أغراض من مطعم", "طرد من جرير").
+    4. Price Inquiries for Specific Routes: Asking about cost (e.g., "بكم المشوار من شوران للحرم؟", "كم يوصل للمطار؟").
+    5. Urgency: Requests for immediate service (e.g., "محتاج سيارة الآن", "في أحد قريب من ممشى الهجرة؟").
+
+    [NO] CRITERIA (The message is NOT a customer request):
+    1. Driver Ads: Drivers offering their service (e.g., "سائق متواجد", "سيارة نظيفة للتواصل", "مشاوير لجدة ومكة").
+    2. General Info/Bus: Questions about public transport (e.g., "توقيت حافلات المدينة", "باصات المطار متى تبدأ؟").
+    3. Recommendations: Asking for advice (e.g., "أفضل عيادة أسنان", "فين ألقى محل مفاتيح؟").
+    4. Admin/Links: Group rules, channel links, or warnings about scams.
+
+    Decision Rule: If the sender is the one PAYING for the service, reply YES. If the sender is OFFERING service or asking for info, reply NO.
+
+    Text to analyze: "{text}"
+
+    Reply ONLY with: YES or NO.
+    """
+
     Reply ONLY with YES or NO.
     """
 
