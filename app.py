@@ -134,6 +134,8 @@ async def analyze_message_hybrid(text):
     3. Availability Inquiries: Asking for drivers in a specific spot (e.g., "مين قريب من قطار الحرمين؟", "في أحد في شوران؟").
     4. Delivery & Logistics: Moving items (e.g., "توصيل طلبية", "أغراض من ممشى الهجرة", "توصيل طرد من زاجل").
     5. Pricing by Customer: (e.g., "من الحزام بـ 20", "يوديني الجامعة بـ 30").
+    6. Long-term Needs: Requests for school or work pickup (e.g., "توصيل مدرسة", "توصيل موظفات", "عقد شهري").
+    7. Single Location Requests: If someone mentions a neighborhood and a service without a second location (e.g., "سواق في شوران").
 
     [STRICT NO - REJECTION CRITERIA]
     1. Religious & Social Wisdom: DO NOT accept quotes, Islamic texts, or morning/evening greetings (e.g., ابن القيم، ابن تيمية، أذكار، "الكلمة الطيبة"، "صباح الخير"). These are SPAM for this bot.
