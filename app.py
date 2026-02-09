@@ -130,10 +130,10 @@ async def analyze_message_hybrid(text):
 
     [YES] CRITERIA (This is a CUSTOMER REQUEST):
     1. Ride Requests: Anyone asking for a driver (e.g., "أبي سواق", "كابتن متاح؟", "توصيل للمطار").
-    2. Route-Only: Messages specifying a path (e.g., "من الحزام إلى الحمراء", "من باقدو للحرم").
+    2. Implicit Routes: Phrases that only mention locations, as they imply a ride request in this group (e.g., "من الهجرة للعزيزية", "من الحزام للحرم", "سلطانة للمطار"). **This is a priority YES.**
     3. Delivery: Moving goods/food (e.g., "أبي توصيل طلبية", "أغراض من المطعم", "توصيل طرد").
     4. Budget Offers: Customers setting a price (e.g., "حق المشوار 20", "يوديني بـ 30", "من السلام للمطار بـ 50").
-    5. Urgency/Availability: Asking for someone nearby (e.g., "من في العزيزية الآن؟", "في أحد قريب من ممشى الهجرة؟").
+    5. Urgency: Asking for someone nearby (e.g., "من في العزيزية الآن؟", "في أحد قريب من ممشى الهجرة؟").
     6. Specific Destinations: Mentioning key places like (المطار, الحرم, القطار, الجامعة).
 
     [NO] CRITERIA (This is NOT a customer request):
@@ -143,14 +143,15 @@ async def analyze_message_hybrid(text):
     4. Admin/Links: Rules, ads for other channels, or anti-scam warnings.
 
     Decision Rule:
-    - If the sender is the one WHO NEEDS a service and WILL PAY for it, reply YES.
-    - If the sender is OFFERING a service or just ASKING for information, reply NO.
-    - Be flexible with short messages and local slang (Madinah dialect).
+    - In a taxi group, any mention of "From X to Y" or "To X" is ALWAYS a customer request.
+    - If the sender is the one WHO NEEDS a service, reply YES.
+    - Be extremely flexible with short messages and local Madinah dialect.
 
     Text to analyze: "{text}"
 
     Reply ONLY with: YES or NO.
     """
+
 
     try:
         # استخدام asyncio.to_thread لمنع تعليق البوت أثناء انتظار جوجل
