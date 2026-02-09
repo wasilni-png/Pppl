@@ -148,9 +148,6 @@ async def analyze_message_hybrid(text):
     Reply ONLY with: YES or NO.
     """
 
-    Reply ONLY with YES or NO.
-    """
-
     try:
         # استخدام asyncio.to_thread لمنع تعليق البوت أثناء انتظار جوجل
         response = await asyncio.to_thread(
