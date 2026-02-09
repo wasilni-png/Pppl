@@ -19,6 +19,7 @@ logging.getLogger("pyrogram").setLevel(logging.WARNING)
 try:
     # تم إبقاء الضروريات فقط وحذف دوال قاعدة البيانات
     from config import normalize_text, CITIES_DISTRICTS, BOT_TOKEN
+
     print("✅ تم تحميل الإعدادات بنجاح")
 except Exception as e:
     print(f"❌ خطأ في تحميل ملف config.py: {e}")
