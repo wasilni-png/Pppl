@@ -156,21 +156,26 @@ async def notify_channel(detected_district, original_msg):
 
     try:
         customer = original_msg.from_user
-        buttons = []
-
-        # زر التواصل (يوزرنيم أو رابط عام) لتجنب أخطاء الخصوصية
-        if customer and customer.username:
-            c_link = f"https://t.me/{customer.username}"
-            buttons.append([InlineKeyboardButton("💬 مراسلة العميل مباشر", url=c_link)])
-        else:
-            # إذا لم يكن لديه يوزر، نوجه السائق للرد في الجروب
-            buttons.append([InlineKeyboardButton("⚠️ العميل بدون يوزر (رد في الجروب)", url="https://t.me/telegram")])
-
-        # زر مصدر الطلب
+        # استخراج المعرفات اللازمة
+        customer_id = customer.id if customer else 0
         msg_id = getattr(original_msg, "id", getattr(original_msg, "message_id", 0))
-        c_id_str = str(original_msg.chat.id).replace("-100", "")
-        m_url = f"https://t.me/c/{c_id_str}/{msg_id}"
-        buttons.append([InlineKeyboardButton("🔗 مصدر الطلب", url=m_url)])
+        chat_id_str = str(original_msg.chat.id).replace("-100", "")
+        
+        # --- الإعدادات (تأكد من مطابقة يوزر البوت) ---
+        # استبدل 'YourBotUsername' بيوزر بوتك بدون علامة @
+        bot_username = "YourBotUsername" 
+
+        # تجهيز الروابط العميقة (Deep Links)
+        # الرابط الأول لمراسلة العميل
+        gate_contact = f"https://t.me/{bot_username}?start=contact_{customer_id}"
+        # الرابط الثاني لمصدر الطلب في الجروب
+        gate_source = f"https://t.me/{bot_username}?start=source_{chat_id_str}_{msg_id}"
+
+        buttons = [
+            [InlineKeyboardButton("💬 مراسلة العميل (للمشتركين)", url=gate_contact)],
+            [InlineKeyboardButton("🔗 مصدر الطلب (للمشتركين)", url=gate_source)],
+            [InlineKeyboardButton("💳 للاشتراك وتفعيل الحساب", url="https://t.me/x3FreTx")]
+        ]
 
         keyboard = InlineKeyboardMarkup(buttons)
 
@@ -178,7 +183,8 @@ async def notify_channel(detected_district, original_msg):
             f"🎯 <b>طلب مشوار جديد</b>\n\n"
             f"📍 <b>المنطقة:</b> {detected_district}\n"
             f"📝 <b>التفاصيل:</b>\n<i>{content}</i>\n\n"
-            f"⏰ <b>الوقت:</b> {datetime.now().strftime('%H:%M:%S')}"
+            f"⏰ <b>الوقت:</b> {datetime.now().strftime('%H:%M:%S')}\n"
+            f"⚠️ <i>الروابط أعلاه تفتح للمشتركين فقط.</i>"
         )
 
         await bot_sender.send_message(
@@ -187,7 +193,7 @@ async def notify_channel(detected_district, original_msg):
             reply_markup=keyboard,
             parse_mode=ParseMode.HTML
         )
-        print(f"✅ تم الإرسال للقناة: {detected_district}")
+        print(f"✅ تم الإرسال للقناة بروابط مشفرة: {detected_district}")
 
     except Exception as e:
         print(f"❌ خطأ إرسال للقناة: {e}")
