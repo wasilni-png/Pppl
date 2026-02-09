@@ -177,7 +177,7 @@ async def notify_channel(detected_district, original_msg):
         
         # --- الإعدادات (تأكد من مطابقة يوزر البوت) ---
         # استبدل 'YourBotUsername' بيوزر بوتك بدون علامة @
-        bot_username = "@Mishwariibot" 
+        bot_username = "Mishwariibot" 
 
         # تجهيز الروابط العميقة (Deep Links)
         # الرابط الأول لمراسلة العميل
