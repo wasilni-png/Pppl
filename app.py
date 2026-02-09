@@ -123,34 +123,37 @@ async def analyze_message_hybrid(text):
     # المرحلة 3: Gemini Flash للفصل النهائي
     # هذا الموديل سريع جداً ويفهم السياق
     prompt = f"""
-    Context: You are a professional AI moderator for a taxi and delivery group in Madinah, Saudi Arabia. 
-    Your goal is to distinguish between real customers and everyone else.
+    Context: You are an elite AI Traffic Controller for a specialized Madinah Taxi & Delivery Telegram group. 
+    Your sole purpose is to filter messages to find REAL CUSTOMERS who need a ride or delivery service.
 
-    Task: Analyze the message and reply ONLY with 'YES' or 'NO'.
+    Task: Categorize the message and reply ONLY with 'YES' or 'NO'.
 
-    [YES] CRITERIA (This is a CUSTOMER REQUEST):
-    1. Ride Requests: Anyone asking for a driver (e.g., "أبي سواق", "كابتن متاح؟", "توصيل للمطار").
-    2. Implicit Routes: Phrases that only mention locations, as they imply a ride request in this group (e.g., "من الهجرة للعزيزية", "من الحزام للحرم", "سلطانة للمطار"). **This is a priority YES.**
-    3. Delivery: Moving goods/food (e.g., "أبي توصيل طلبية", "أغراض من المطعم", "توصيل طرد").
-    4. Budget Offers: Customers setting a price (e.g., "حق المشوار 20", "يوديني بـ 30", "من السلام للمطار بـ 50").
-    5. Urgency: Asking for someone nearby (e.g., "من في العزيزية الآن؟", "في أحد قريب من ممشى الهجرة؟").
-    6. Specific Destinations: Mentioning key places like (المطار, الحرم, القطار, الجامعة).
+    [STRICT YES - CUSTOMER REQUEST CRITERIA]
+    1. Direct Ride Needs: (e.g., "مطلوب سواق", "كابتن متاح؟", "توصيل للمطار").
+    2. Route Identification: Mentioning a path or destination even without a verb (e.g., "من العزيزية إلى الحرم", "باقدو للمطار", "مستشفى الولادة").
+    3. Availability Inquiries: Asking for drivers in a specific spot (e.g., "مين قريب من قطار الحرمين؟", "في أحد في شوران؟").
+    4. Delivery & Logistics: Moving items (e.g., "توصيل طلبية", "أغراض من ممشى الهجرة", "توصيل طرد من زاجل").
+    5. Pricing by Customer: (e.g., "من الحزام بـ 20", "يوديني الجامعة بـ 30").
 
-    [NO] CRITERIA (This is NOT a customer request):
-    1. Driver Offers: Drivers promoting themselves (e.g., "سائق متواجد", "سيارة نظيفة", "توصيل خارج المدينة", "رقمي هو...").
-    2. Public Transport: General questions about buses (e.g., "سعر باصات المطار", "مواعيد حافلات المدينة").
-    3. Recommendations/Questions: Seeking advice (e.g., "أفضل محل مفاتيح؟", "فين ألقى عيادة أسنان؟", "كيف الجو اليوم؟").
-    4. Admin/Links: Rules, ads for other channels, or anti-scam warnings.
+    [STRICT NO - REJECTION CRITERIA]
+    1. Religious & Social Wisdom: DO NOT accept quotes, Islamic texts, or morning/evening greetings (e.g., ابن القيم، ابن تيمية، أذكار، "الكلمة الطيبة"، "صباح الخير"). These are SPAM for this bot.
+    2. Driver Promotions: Reject drivers offering their services (e.g., "سواق موجود", "سيارة نظيفة", "موجود توصيل مشاوير"، "للتواصل خاص").
+    3. Employment Seeking: People looking for work as drivers.
+    4. General Questions: Asking about weather, bus times, or hospital opening hours (e.g., "متى يفتح المستشفى؟", "باصات المدينة وين؟").
+    5. Admin & Safety: Group rules, link sharing, or warnings about scammers.
 
-    Decision Rule:
-    - In a taxi group, any mention of "From X to Y" or "To X" is ALWAYS a customer request.
-    - If the sender is the one WHO NEEDS a service, reply YES.
-    - Be extremely flexible with short messages and local Madinah dialect.
+    [GOLDEN RULES FOR DECISION]
+    - IF the text is a Wisdom/Quote or religious content: ALWAYS NO.
+    - IF the sender is OFFERING a service (Driver): ALWAYS NO.
+    - IF the sender is SEEKING a service (Passenger/Customer): ALWAYS YES.
+    - Madinah Context: Recognize local neighborhoods (العزيزية، الهجرة، باقدو، الحزام، شوران، الدعيثة، سلطانة).
+    - Format Neutrality: Ignore fancy formatting (emojis, lines, bold text). Focus ONLY on the "Intent".
 
     Text to analyze: "{text}"
 
-    Reply ONLY with: YES or NO.
+    Final Output (Reply ONLY with 'YES' or 'NO'):
     """
+
 
 
     try:
