@@ -123,25 +123,29 @@ async def analyze_message_hybrid(text):
     # المرحلة 3: Gemini Flash للفصل النهائي
     # هذا الموديل سريع جداً ويفهم السياق
     prompt = f"""
-    Context: You are a highly intelligent AI moderator for a Telegram group in Madinah, Saudi Arabia. 
-    The group connects customers with private drivers and delivery captains.
-    
-    Task: Analyze the message and determine if it is a CUSTOMER REQUEST for a service.
-    
-    [YES] CRITERIA (The message is a CUSTOMER REQUEST):
-    1. Ride Requests: Person needs a driver (e.g., "أبي سواق", "كابتن متاح؟", "توصيل للمطار").
-    2. Route-Only Messages: Short text mentioning locations (e.g., "من الحزام إلى الحمراء", "من قطار الحرمين للعزيزية").
-    3. Delivery Requests: Needs something moved (e.g., "توصيل طلبية", "أغراض من مطعم", "طرد من جرير").
-    4. Price Inquiries for Specific Routes: Asking about cost (e.g., "بكم المشوار من شوران للحرم؟", "كم يوصل للمطار؟").
-    5. Urgency: Requests for immediate service (e.g., "محتاج سيارة الآن", "في أحد قريب من ممشى الهجرة؟").
+    Context: You are a professional AI moderator for a taxi and delivery group in Madinah, Saudi Arabia. 
+    Your goal is to distinguish between real customers and everyone else.
 
-    [NO] CRITERIA (The message is NOT a customer request):
-    1. Driver Ads: Drivers offering their service (e.g., "سائق متواجد", "سيارة نظيفة للتواصل", "مشاوير لجدة ومكة").
-    2. General Info/Bus: Questions about public transport (e.g., "توقيت حافلات المدينة", "باصات المطار متى تبدأ؟").
-    3. Recommendations: Asking for advice (e.g., "أفضل عيادة أسنان", "فين ألقى محل مفاتيح؟").
-    4. Admin/Links: Group rules, channel links, or warnings about scams.
+    Task: Analyze the message and reply ONLY with 'YES' or 'NO'.
 
-    Decision Rule: If the sender is the one PAYING for the service, reply YES. If the sender is OFFERING service or asking for info, reply NO.
+    [YES] CRITERIA (This is a CUSTOMER REQUEST):
+    1. Ride Requests: Anyone asking for a driver (e.g., "أبي سواق", "كابتن متاح؟", "توصيل للمطار").
+    2. Route-Only: Messages specifying a path (e.g., "من الحزام إلى الحمراء", "من باقدو للحرم").
+    3. Delivery: Moving goods/food (e.g., "أبي توصيل طلبية", "أغراض من المطعم", "توصيل طرد").
+    4. Budget Offers: Customers setting a price (e.g., "حق المشوار 20", "يوديني بـ 30", "من السلام للمطار بـ 50").
+    5. Urgency/Availability: Asking for someone nearby (e.g., "من في العزيزية الآن؟", "في أحد قريب من ممشى الهجرة؟").
+    6. Specific Destinations: Mentioning key places like (المطار, الحرم, القطار, الجامعة).
+
+    [NO] CRITERIA (This is NOT a customer request):
+    1. Driver Offers: Drivers promoting themselves (e.g., "سائق متواجد", "سيارة نظيفة", "توصيل خارج المدينة", "رقمي هو...").
+    2. Public Transport: General questions about buses (e.g., "سعر باصات المطار", "مواعيد حافلات المدينة").
+    3. Recommendations/Questions: Seeking advice (e.g., "أفضل محل مفاتيح؟", "فين ألقى عيادة أسنان؟", "كيف الجو اليوم؟").
+    4. Admin/Links: Rules, ads for other channels, or anti-scam warnings.
+
+    Decision Rule:
+    - If the sender is the one WHO NEEDS a service and WILL PAY for it, reply YES.
+    - If the sender is OFFERING a service or just ASKING for information, reply NO.
+    - Be flexible with short messages and local slang (Madinah dialect).
 
     Text to analyze: "{text}"
 
