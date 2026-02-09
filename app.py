@@ -14,6 +14,10 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
 
+# ضع معرف قناتك هنا (يبدأ غالباً بـ -100)
+CHANNEL_ID = -1003763324430  # استبدله برقم قناتك الحقيقي
+
+
 # --- استيراد الإعدادات الخارجية ---
 try:
     from config import normalize_text, CITIES_DISTRICTS, BOT_TOKEN, get_db_connection, release_db_connection
@@ -129,77 +133,46 @@ async def notify_all_drivers(detected_district, original_msg):
     content = original_msg.text or original_msg.caption
     if not content: return
 
-    conn = get_db_connection()
-    if not conn: return
-
     try:
-        with conn.cursor() as cur:
-            query = """
-                SELECT user_id, subscription_expiry 
-                FROM users 
-                WHERE role = 'driver' AND is_blocked = FALSE 
-                AND (districts ILIKE %s OR districts = 'الكل' OR districts IS NULL)
-            """
-            cur.execute(query, (f"%{detected_district}%",))
-            drivers_data = cur.fetchall()
+        # 1. تجهيز روابط التواصل مع العميل
+        customer = original_msg.from_user
+        c_link = f"tg://user?id={customer.id}" if customer else "#"
+        if customer and customer.username:
+            c_link = f"https://t.me/{customer.username}"
 
-        # 1. الحصول على الوقت الحالي بتوقيت UTC لمطابقة قاعدة البيانات
-        now_utc = datetime.now(timezone.utc)
+        # 2. تجهيز رابط الرسالة الأصلية (للتأكد من المصداقية)
+        msg_id = getattr(original_msg, "id", getattr(original_msg, "message_id", 0))
+        c_id_str = str(original_msg.chat.id).replace("-100", "")
+        m_url = f"https://t.me/c/{c_id_str}/{msg_id}"
 
-        for d_id, expiry in drivers_data:
-            try:
-                # 2. تصحيح المقارنة (أهم خطوة)
-                is_active = False
-                if expiry:
-                    # التأكد أن expiry لديه معلومات المنطقة الزمنية UTC
-                    if expiry.tzinfo is None:
-                        expiry = expiry.replace(tzinfo=timezone.utc)
-                    is_active = expiry > now_utc
+        # 3. صياغة نص الإعلان في القناة
+        alert_text = (
+            f"🎯 <b>طلب مشوار جديد مكتشف</b>\n\n"
+            f"📍 <b>المنطقة:</b> {detected_district}\n"
+            f"📝 <b>التفاصيل:</b>\n<i>{content}</i>\n\n"
+            f"⏰ <b>الوقت:</b> {datetime.now().strftime('%H:%M:%S')}\n"
+            f"---"
+        )
 
-                if is_active:
-                    # ✅ للمشتركين: بناء الروابط بحذر شديد
-                    customer = original_msg.from_user
-                    c_link = f"tg://user?id={customer.id}" if customer else "#"
-                    if customer and customer.username:
-                        c_link = f"https://t.me/{customer.username}"
+        # 4. أزرار التواصل
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💬 مراسلة العميل مباشر", url=c_link)],
+            [InlineKeyboardButton("🔗 مصدر الطلب (الجروب)", url=m_url)]
+        ])
 
-                    msg_id = getattr(original_msg, "id", getattr(original_msg, "message_id", 0))
-                    c_id_str = str(original_msg.chat.id).replace("-100", "")
-                    m_url = f"https://t.me/c/{c_id_str}/{msg_id}"
-
-                    alert_text = (
-                        f"🌟 <b>طلب مشوار جديد للمشتركين</b>\n\n"
-                        f"📍 <b>المنطقة:</b> {detected_district}\n"
-                        f"📝 <b>الطلب:</b>\n<i>{content}</i>"
-                    )
-                    keyboard = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("🔗 عرض الطلب", url=m_url)],
-                        [InlineKeyboardButton("💬 مراسلة العميل", url=c_link)]
-                    ])
-                else:
-                    # ❌ لغير المشتركين
-                    alert_text = f"🆕 <b>طلب مكتشف في {detected_district}</b>\n\n⚠️ متاح للمشتركين فقط."
-                    keyboard = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("💳 اشترك الآن", url="https://t.me/x3FreTx")]
-                    ])
-
-                await bot_sender.send_message(
-                    chat_id=d_id,
-                    text=alert_text,
-                    reply_markup=keyboard,
-                    parse_mode="HTML"
-                )
-                await asyncio.sleep(0.05)
-
-            except Exception as e:
-                print(f"⚠️ خطأ إرسال للسائق {d_id}: {e}")
-                continue
+        # 5. الإرسال إلى القناة
+        await bot_sender.send_message(
+            chat_id=CHANNEL_ID,
+            text=alert_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        
+        print(f"✅ تم بنجاح إرسال طلب {detected_district} إلى القناة.")
 
     except Exception as e:
-        print(f"❌ خطأ عام: {e}")
-    finally:
-        from config import release_db_connection
-        release_db_connection(conn)
+        print(f"❌ خطأ أثناء الإرسال للقناة: {e}")
+
 
 # --- المحرك الرئيسي للرادار ---
 
