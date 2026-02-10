@@ -101,7 +101,7 @@ IRRELEVANT_TOPICS = [
 # ---------------------------------------------------------
 async def analyze_message_hybrid(text):
     if not text or len(text) < 5 or len(text) > 400: return False
-    
+
     clean_text = normalize_text(text)
     route_pattern = r"(^|\s)من\s+.*?\s+(إلى|الى|لـ|للحرم|للمطار)(\s|$)"
     if re.search(route_pattern, clean_text):
@@ -179,7 +179,7 @@ async def notify_users(detected_district, original_msg):
 
     try:
         customer = original_msg.from_user
-        
+
         # 1. رابط حساب العميل المباشر
         # إذا كان لدى العميل "username" نستخدمه، وإلا نستخدم "id" (رابط دائم)
         if customer and customer.username:
@@ -189,21 +189,16 @@ async def notify_users(detected_district, original_msg):
         else:
             direct_contact_url = None # لا يمكن المراسلة إذا كان مخفياً
 
-        # 2. رابط مصدر الرسالة في الجروب
-        # ملاحظة: الروابط المباشرة للجروبات الخاصة تتطلب أن يكون المستخدم منضماً للجروب
-        chat_id_str = str(original_msg.chat.id).replace("-100", "")
-        msg_id = original_msg.id
-        source_url = f"https://t.me/c/{chat_id_str}/{msg_id}"
 
         # 3. تجهيز الأزرار
         buttons_list = []
-        
+
         # زر مراسلة العميل (يظهر فقط إذا توفر الرابط)
         if direct_contact_url:
             buttons_list.append([InlineKeyboardButton("💬 مراسلة العميل مباشرة", url=direct_contact_url)])
-        
+
         # زر المصدر
-        buttons_list.append([InlineKeyboardButton("🔗 الذهاب لمصدر الطلب", url=source_url)])
+        
 
         keyboard = InlineKeyboardMarkup(buttons_list)
 
@@ -242,7 +237,7 @@ async def notify_channel(detected_district, original_msg):
         customer_id = customer.id if customer else 0
         msg_id = getattr(original_msg, "id", getattr(original_msg, "message_id", 0))
         chat_id_str = str(original_msg.chat.id).replace("-100", "")
-        
+
         # --- الإعدادات (تأكد من مطابقة يوزر البوت) ---
         # استبدل 'YourBotUsername' بيوزر بوتك بدون علامة @
         bot_username = "Mishwariibot" 
@@ -255,7 +250,6 @@ async def notify_channel(detected_district, original_msg):
 
         buttons = [
             [InlineKeyboardButton("💬 مراسلة العميل (للمشتركين)", url=gate_contact)],
-            [InlineKeyboardButton("🔗 مصدر الطلب (للمشتركين)", url=gate_source)],
             [InlineKeyboardButton("💳 للاشتراك وتفعيل الحساب", url="https://t.me/x3FreTx")]
         ]
 
@@ -287,7 +281,7 @@ async def notify_channel(detected_district, original_msg):
 async def start_radar():
     await user_app.start()
     print("🚀 الرادار يعمل ويرسل للمستخدمين المحددين...")
-    
+
     # [هام] قم بإرسال رسالة تجريبية لنفسك عند التشغيل للتأكد
     # يمكنك إزالة هذا السطر لاحقاً
     if TARGET_USERS:
@@ -300,7 +294,7 @@ async def start_radar():
     while True:
         try:
             await asyncio.sleep(5) 
-            
+
             async for dialog in user_app.get_dialogs(limit=50):
                 # تأكد من أن الحوار هو "مجموعة" أو "سوبر جروب"
                 dialog_type = str(dialog.chat.type).upper()
@@ -308,16 +302,16 @@ async def start_radar():
                     continue
 
                 chat_id = dialog.chat.id
-                
+
                 # جلب آخر رسالة
                 try:
                     async for msg in user_app.get_chat_history(chat_id, limit=1):
                         # تخطي الرسائل القديمة أو المعالجة مسبقاً
                         if chat_id in last_processed and msg.id <= last_processed[chat_id]:
                             continue
-                        
+
                         last_processed[chat_id] = msg.id
-                        
+
                         text = msg.text or msg.caption
                         # تجاهل رسائل البوت نفسه أو الرسائل الفارغة
                         if not text or (msg.from_user and msg.from_user.is_self): continue
@@ -334,14 +328,16 @@ async def start_radar():
                                     if normalize_text(d) in text_c:
                                         found_d = d
                                         break
-                            
+
                             # [تعديل 3] استدعاء دالة الإرسال للمستخدمين
-                            await notify_users(found_d, msg)
-                            
+                                       # ✅ [التعديل المطلوب] استدعاء الدالتين معاً
+                            await notify_users(found_d, msg)   # الإرسال للأشخاص في الخاص
+                            await notify_channel(found_d, msg) # الإرسال للقناة العامة
+
                 except Exception as e_chat:
                     # أحياناً يحدث خطأ في قراءة مجموعة معينة، نتجاوزها
                     continue
-                    
+
         except Exception as e:
             print(f"⚠️ خطأ في الدورة الرئيسية: {e}")
             await asyncio.sleep(5)
