@@ -110,32 +110,48 @@ async def analyze_message_hybrid(text):
     if any(k in clean_text for k in BLOCK_KEYWORDS): return False
     if any(k in clean_text for k in IRRELEVANT_TOPICS): return False
 
+        # البرومبت الشامل (The Master Prompt)
     prompt = f"""
-    Context: You are an elite AI Traffic Controller for a specialized Madinah Taxi & Delivery Telegram group. 
-    Your sole purpose is to filter messages to find REAL CUSTOMERS who need a ride or delivery service.
+    Role: You are an elite AI Traffic Controller for a specific 'Madinah Taxi & Delivery' Telegram group.
+    Objective: Filter messages to identify REAL CUSTOMERS seeking services (Rides, Delivery, School Transport).
     
-    [STRICT YES - CUSTOMER REQUEST CRITERIA]
-    1. Direct Ride Needs: (e.g., "مطلوب سواق", "كابتن متاح؟", "توصيل للمطار").
-    2. Route Identification: Mentioning a path or destination even without a verb.
-    3. Availability Inquiries: Asking for drivers.
-    4. Delivery & Logistics: Moving items.
-    5. Pricing by Customer.
+    [STRICT ANALYSIS RULES]
+    You must classify the "Intent" of the sender.
+    - SENDER = CUSTOMER (Needs service) -> Reply 'YES'
+    - SENDER = DRIVER (Offers service) -> Reply 'NO'
+    - SENDER = SPAM/CHATTER -> Reply 'NO'
 
-    [STRICT NO - REJECTION CRITERIA]
-    1. Religious & Social Wisdom.
-    2. Driver Promotions: Reject drivers offering their services.
-    3. Employment Seeking.
-    4. General Questions.
-    5. Admin & Safety.
+    [✅ CLASSIFY AS 'YES' (CUSTOMER REQUESTS)]
+    1. Explicit Ride Requests: (e.g., "أبغى سواق", "مطلوب كابتن", "سيارة للحرم", "مين يوديني؟").
+    2. Route Descriptions (Implicit): Text mentioning a destination or path (e.g., "من العزيزية للحرم", "مشوار للمطار", "إلى الراشد مول").
+    3. Location Pings (Incomplete Requests): If someone just names a location implies they need a driver there (e.g., "حي شوران؟", "أحد حول العالية؟", "في كباتن في الهجرة؟").
+    4. School & Monthly Contracts: (e.g., "توصيل مدارس", "نقل طالبات", "عقد شهري", "توصيل دوام").
+    5. Delivery & Logistics: Requests to move items (e.g., "توصيل غرض", "توصيل مفتاح", "طلبية من زاجل", "توصيل أكل").
+    6. Price Inquiries by Customer: (e.g., "بكم المشوار للمطار؟", "توديني بـ 20؟").
 
-    [GOLDEN RULES FOR DECISION]
-    - IF the text is a Wisdom/Quote or religious content: ALWAYS NO.
-    - IF the sender is OFFERING a service (Driver): ALWAYS NO.
-    - IF the sender is SEEKING a service (Passenger/Customer): ALWAYS YES.
+    [❌ CLASSIFY AS 'NO' (IGNORE THESE)]
+    1. Driver Offers (Supply): Any text indicating the sender IS a driver (e.g., "متواجد", "جاهز للتوصيل", "سيارة حديثة", "توصيل مشاوير", "على مدار الساعة", "الخاص مفتوح").
+    2. Social & Religious: Greetings, prayers, wisdom (e.g., "صباح الخير", "جمعة مباركة", "سبحان الله", "دعاء", "حكم").
+    3. Forbidden Spam Topics: 
+       - Medical Excuses (e.g., "سكليف", "عذر طبي", "اجازة مرضية").
+       - Marriage/Social (e.g., "خطابة", "زواج مسيار", "تعارف").
+       - Financial/Real Estate (e.g., "قروض", "أرض للبيع", "استثمار").
+    4. General Chat/Admin: Questions about rules, links, or weather.
 
-    Text to analyze: "{text}"
+    [📍 MADINAH CONTEXT KNOWLEDGE]
+    Treat these as valid locations implying a request if mentioned alone:
+    (Haram, Airport, Train Station, Aziziya, Shoran, Awali, Hijra, Baqdo, Quba, Sultana, Rashid Mall, Al-Noor, Taiba).
 
-    Final Output (Reply ONLY with 'YES' or 'NO'):
+    [DECISION LOGIC]
+    - "From A to B" -> YES
+    - "I am available" -> NO
+    - "School delivery needed" -> YES
+    - "Sick leave for sale" -> NO
+    - "Who is in Shoran?" -> YES
+
+    Input Text: "{text}"
+
+    FINAL ANSWER (Reply ONLY with 'YES' or 'NO'):
     """
 
     try:
